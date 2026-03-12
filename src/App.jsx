@@ -42,6 +42,16 @@ const tryUpdateFeedback = async (id, feedback) => {
   } catch { }
 };
 
+const tryUpdateCorrection = async (id, correction) => {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/scans?id=eq.${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({ staff_correction: correction })
+    });
+  } catch { }
+};
+
 const SYSTEM_PROMPT = `You are an expert auto mechanic and parts specialist with 30 years of experience working with salvage yards and used auto parts. When shown an image of an auto or mechanical part, identify it and respond ONLY with valid JSON (no markdown, no code blocks).
 
 Return this exact structure:
@@ -137,6 +147,8 @@ export default function AutoScan() {
   const [dragging, setDragging] = useState(false);
   const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("byot_history") || "[]"); } catch { return []; } });
   const [feedback, setFeedback] = useState(null);
+  const [correction, setCorrection] = useState("");
+  const [correctionSaved, setCorrectionSaved] = useState(false);
   const [currentScanId, setCurrentScanId] = useState(null);
   const [dbStatus, setDbStatus] = useState("idle");
   const fileRef = useRef();
@@ -175,7 +187,7 @@ export default function AutoScan() {
 
   const scan = async () => {
     if (!imageBase64 || !apiKey) return;
-    setLoading(true); setError(null); setResult(null); setCurrentScanId(null); setFeedback(null); setDbStatus("idle");
+    setLoading(true); setError(null); setResult(null); setCurrentScanId(null); setFeedback(null); setCorrection(""); setCorrectionSaved(false); setDbStatus("idle");
     try {
       const res = await fetch("/api/anthropic", {
         method: "POST",
@@ -459,7 +471,7 @@ export default function AutoScan() {
                   )}
 
                   {/* Feedback */}
-                  <div style={{ padding: "12px 16px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ padding: "12px 16px 4px", display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: C.textDim, fontWeight: 500 }}>Was this correct?</span>
                     {feedback
                       ? <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: 12, color: feedback === "correct" ? C.green : "#d94040", fontWeight: 700 }}>
@@ -472,6 +484,37 @@ export default function AutoScan() {
                             style={{ background: "#280a0a", border: "1px solid #581212", color: "#d94040", borderRadius: 8, padding: "5px 14px", fontSize: 11, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>✗ No</button>
                         </>
                     }
+                  </div>
+
+                  {/* Correction Box */}
+                  <div style={{ margin: "8px 16px 16px", background: C.cardDark, borderRadius: 12, padding: "12px 14px", border: `1px solid ${C.border}` }}>
+                    <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.green, fontWeight: 700, letterSpacing: 1.5, marginBottom: 8 }}>✏️ SUGGEST A CORRECTION</div>
+                    <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 10, color: C.textFaint, marginBottom: 8, lineHeight: 1.5 }}>
+                      Something wrong? Type the correct vehicle compatibility, part name, or any other info below.
+                    </div>
+                    {correctionSaved ? (
+                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 12, color: C.green, fontWeight: 700 }}>✓ Correction saved — thank you!</div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <textarea
+                          value={correction}
+                          onChange={e => setCorrection(e.target.value)}
+                          placeholder="e.g. This alternator fits 2005-2010 Toyota Camry 2.4L, not the vehicles listed above..."
+                          rows={3}
+                          style={{ flex: 1, background: C.cardBg, border: `1px solid ${C.border}`, color: C.white, fontFamily: "'Outfit', sans-serif", fontSize: 11, padding: "8px 10px", borderRadius: 8, outline: "none", resize: "vertical", lineHeight: 1.6 }}
+                        />
+                        <button
+                          onClick={() => {
+                            if (!correction.trim()) return;
+                            setCorrectionSaved(true);
+                            updateHistory(prev => prev.map((h, i) => i === 0 ? { ...h, staff_correction: correction } : h));
+                            if (currentScanId) tryUpdateCorrection(currentScanId, correction);
+                          }}
+                          style={{ background: `linear-gradient(145deg, ${C.green}, ${C.greenDark})`, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontFamily: "'Nunito', sans-serif", fontSize: 12, fontWeight: 800, cursor: "pointer", alignSelf: "flex-end" }}>
+                          Save
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
