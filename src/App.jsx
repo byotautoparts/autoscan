@@ -124,8 +124,8 @@ const CardHeader = ({ icon, title }) => (
 
 export default function AutoScan() {
   const [tab, setTab] = useState("scan");
-  const [apiKey, setApiKey] = useState("");
-  const [keySubmitted, setKeySubmitted] = useState(false);
+  const [apiKey, setApiKey] = useState(() => { try { return localStorage.getItem("byot_api_key") || ""; } catch { return ""; } });
+  const [keySubmitted, setKeySubmitted] = useState(() => { try { return !!localStorage.getItem("byot_api_key"); } catch { return false; } });
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [image, setImage] = useState(null);
   const [imageFile, setImageFile] = useState(null);
@@ -135,11 +135,24 @@ export default function AutoScan() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("byot_history") || "[]"); } catch { return []; } });
   const [feedback, setFeedback] = useState(null);
   const [currentScanId, setCurrentScanId] = useState(null);
   const [dbStatus, setDbStatus] = useState("idle");
   const fileRef = useRef();
+
+  const saveApiKey = (key) => {
+    setApiKey(key);
+    try { if (key) localStorage.setItem("byot_api_key", key); else localStorage.removeItem("byot_api_key"); } catch {}
+  };
+
+  const updateHistory = (updater) => {
+    setHistory(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try { localStorage.setItem("byot_history", JSON.stringify(next.slice(0, 100))); } catch {}
+      return next;
+    });
+  };
 
   const processFile = (file) => {
     if (!file || !file.type.startsWith("image/")) return;
@@ -186,7 +199,7 @@ export default function AutoScan() {
       setResult(parsed);
 
       const localId = `local-${Date.now()}`;
-      setHistory(prev => [{
+      updateHistory(prev => [{
         id: localId, created_at: new Date().toISOString(), image_url: image,
         part_name: parsed.part_name, part_category: parsed.part_category,
         part_number: parsed.part_number_visible, compatible_vehicles: parsed.compatible_vehicles,
@@ -199,7 +212,7 @@ export default function AutoScan() {
       trySaveToSupabase(parsed, imageFile, image).then(({ id, image_url }) => {
         if (id) {
           setCurrentScanId(id); setDbStatus("saved");
-          setHistory(prev => prev.map(h => h.id === localId ? { ...h, id, image_url } : h));
+          updateHistory(prev => prev.map(h => h.id === localId ? { ...h, id, image_url } : h));
         } else setDbStatus("failed");
       });
     } catch (e) {
@@ -211,7 +224,7 @@ export default function AutoScan() {
 
   const submitFeedback = async (val) => {
     setFeedback(val);
-    setHistory(prev => prev.map((h, i) => i === 0 ? { ...h, staff_feedback: val } : h));
+    updateHistory(prev => prev.map((h, i) => i === 0 ? { ...h, staff_feedback: val } : h));
     if (currentScanId) tryUpdateFeedback(currentScanId, val);
   };
 
@@ -262,7 +275,7 @@ export default function AutoScan() {
                 <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.green, boxShadow: `0 0 7px ${C.green}`, animation: "pulse 2.5s infinite" }} />
                 <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: C.green, fontWeight: 600 }}>Connected</span>
                 <span style={{ color: C.textFaint, fontSize: 11 }}>·</span>
-                <button onClick={() => { setKeySubmitted(false); setApiKey(""); }} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 9, cursor: "pointer", textDecoration: "underline", fontFamily: "'Outfit', sans-serif" }}>change</button>
+                <button onClick={() => { setKeySubmitted(false); saveApiKey(""); }} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 9, cursor: "pointer", textDecoration: "underline", fontFamily: "'Outfit', sans-serif" }}>change</button>
               </div>
             ) : (
               <button onClick={() => setShowKeyInput(!showKeyInput)} style={{
@@ -286,9 +299,9 @@ export default function AutoScan() {
               </div>
               <input type="password" placeholder="sk-ant-..." value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && apiKey.length > 10 && (setKeySubmitted(true), setShowKeyInput(false))}
+                onKeyDown={e => e.key === "Enter" && apiKey.length > 10 && (saveApiKey(apiKey), setKeySubmitted(true), setShowKeyInput(false))}
                 style={{ flex: 2, minWidth: 220, background: C.pageBg, border: `1px solid ${C.border}`, color: C.white, fontFamily: "'Outfit', monospace", fontSize: 12, padding: "9px 13px", borderRadius: 10, outline: "none" }} />
-              <button onClick={() => { if (apiKey.length > 10) { setKeySubmitted(true); setShowKeyInput(false); } }}
+              <button onClick={() => { if (apiKey.length > 10) { saveApiKey(apiKey); setKeySubmitted(true); setShowKeyInput(false); } }}
                 style={{ background: `linear-gradient(145deg, ${C.green}, ${C.greenDark})`, color: "#fff", border: "none", borderRadius: 10, padding: "9px 22px", fontFamily: "'Nunito', sans-serif", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
                 Connect →
               </button>
