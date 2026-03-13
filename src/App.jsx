@@ -52,9 +52,12 @@ const tryUpdateCorrection = async (id, correction) => {
   } catch { }
 };
 
-const SYSTEM_PROMPT = `You are an expert auto mechanic and parts specialist with 30 years of experience working with salvage yards and used auto parts. When shown an image of an auto or mechanical part, identify it and respond ONLY with valid JSON (no markdown, no code blocks).
+const SYSTEM_PROMPT = `You are an expert auto mechanic and parts specialist with 30 years of experience working with salvage yards and used auto parts. When shown an image, identify ALL visible auto or mechanical parts and respond ONLY with valid JSON (no markdown, no code blocks).
 
-Return this exact structure:
+If there is ONE part, return a JSON array with one object.
+If there are MULTIPLE parts, return a JSON array with one object per part.
+
+Each object must follow this exact structure:
 {
   "part_name": "Full descriptive name of the part",
   "part_category": "Category (e.g., Engine, Brakes, Suspension, Electrical, Filters, Belts & Hoses)",
@@ -65,7 +68,9 @@ Return this exact structure:
   "estimated_value": "Rough price range in USD if known, or null",
   "confidence": "High / Medium / Low",
   "notes": "Any additional important info for a parts counter staff member"
-}`;
+}
+
+Always return an array even if only one part is found. Example: [{ ... }]`;
 
 // Softer lime green matching BYOT screenshot — not neon, more natural
 const C = {
@@ -141,7 +146,8 @@ export default function AutoScan() {
   const [imageFile, setImageFile] = useState(null);
   const [imageBase64, setImageBase64] = useState(null);
   const [imageMime, setImageMime] = useState("image/jpeg");
-  const [result, setResult] = useState(null);
+  const [results, setResults] = useState([]);
+  const [selectedPart, setSelectedPart] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -168,7 +174,7 @@ export default function AutoScan() {
 
   const processFile = (file) => {
     if (!file || !file.type.startsWith("image/")) return;
-    setResult(null); setError(null); setCurrentScanId(null); setFeedback(null); setDbStatus("idle");
+    setResults([]); setSelectedPart(0); setError(null); setCurrentScanId(null); setFeedback(null); setCorrection(""); setCorrectionSaved(false); setDbStatus("idle");
     setImageMime(file.type || "image/jpeg");
     setImageFile(file);
     const reader = new FileReader();
@@ -187,7 +193,7 @@ export default function AutoScan() {
 
   const scan = async () => {
     if (!imageBase64 || !apiKey) return;
-    setLoading(true); setError(null); setResult(null); setCurrentScanId(null); setFeedback(null); setCorrection(""); setCorrectionSaved(false); setDbStatus("idle");
+    setLoading(true); setError(null); setResults([]); setSelectedPart(0); setCurrentScanId(null); setFeedback(null); setCorrection(""); setCorrectionSaved(false); setDbStatus("idle");
     try {
       const res = await fetch("/api/anthropic", {
         method: "POST",
@@ -198,7 +204,7 @@ export default function AutoScan() {
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: [
             { type: "image", source: { type: "base64", media_type: imageMime, data: imageBase64 } },
-            { type: "text", text: "Identify this auto part." }
+            { type: "text", text: "Identify all auto parts visible in this image." }
           ]}]
         })
       });
@@ -207,25 +213,30 @@ export default function AutoScan() {
       let raw = data.content[0].text.trim();
       if (raw.startsWith("```")) raw = raw.split("\n").slice(1).join("\n");
       if (raw.endsWith("```")) raw = raw.split("\n").slice(0, -1).join("\n");
-      const parsed = JSON.parse(raw.trim());
-      setResult(parsed);
+      let parsed = JSON.parse(raw.trim());
+      if (!Array.isArray(parsed)) parsed = [parsed];
+      setResults(parsed);
+      setSelectedPart(0);
 
-      const localId = `local-${Date.now()}`;
-      updateHistory(prev => [{
-        id: localId, created_at: new Date().toISOString(), image_url: image,
-        part_name: parsed.part_name, part_category: parsed.part_category,
-        part_number: parsed.part_number_visible, compatible_vehicles: parsed.compatible_vehicles,
-        condition: parsed.condition, condition_notes: parsed.condition_notes,
-        estimated_value: parsed.estimated_value, confidence: parsed.confidence,
-        notes: parsed.notes, staff_feedback: null
-      }, ...prev]);
-
+      // Save each part to history and supabase
       setDbStatus("saving");
-      trySaveToSupabase(parsed, imageFile, image).then(({ id, image_url }) => {
-        if (id) {
-          setCurrentScanId(id); setDbStatus("saved");
-          updateHistory(prev => prev.map(h => h.id === localId ? { ...h, id, image_url } : h));
-        } else setDbStatus("failed");
+      const savePromises = parsed.map(async (part, i) => {
+        const localId = `local-${Date.now()}-${i}`;
+        updateHistory(prev => [{
+          id: localId, created_at: new Date().toISOString(), image_url: image,
+          part_name: part.part_name, part_category: part.part_category,
+          part_number: part.part_number_visible, compatible_vehicles: part.compatible_vehicles,
+          condition: part.condition, condition_notes: part.condition_notes,
+          estimated_value: part.estimated_value, confidence: part.confidence,
+          notes: part.notes, staff_feedback: null
+        }, ...prev]);
+        const { id, image_url } = await trySaveToSupabase(part, i === 0 ? imageFile : null, image);
+        if (id && i === 0) { setCurrentScanId(id); }
+        if (id) updateHistory(prev => prev.map(h => h.id === localId ? { ...h, id, image_url } : h));
+        return id;
+      });
+      Promise.all(savePromises).then(ids => {
+        setDbStatus(ids[0] ? "saved" : "failed");
       });
     } catch (e) {
       setError(e.message || "Scan failed. Check your API key.");
@@ -240,6 +251,7 @@ export default function AutoScan() {
     if (currentScanId) tryUpdateFeedback(currentScanId, val);
   };
 
+  const result = results[selectedPart] || null;
   const cs = result ? (COND[result.condition] || COND.Unknown) : null;
   const dbBadge = {
     saving: { text: "● Saving...",           color: "#e8a020" },
@@ -399,7 +411,7 @@ export default function AutoScan() {
             <div style={{ background: C.cardBg, borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 4px 20px #00000030" }}>
               <CardHeader icon="📋" title="Part Details" />
 
-              {!result && !loading && !error && (
+              {results.length === 0 && !loading && !error && (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, gap: 12, padding: 24 }}>
                   <div style={{ fontSize: 52, opacity: 0.12 }}>🔩</div>
                   <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 13, color: C.textFaint, textAlign: "center", lineHeight: 1.6 }}>Upload a part image<br/>and press Identify</div>
@@ -427,6 +439,21 @@ export default function AutoScan() {
 
               {result && (
                 <div className="fu">
+                  {/* Part selector tabs — shown when multiple parts found */}
+                  {results.length > 1 && (
+                    <div style={{ padding: "10px 14px 0", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: `1px solid ${C.border}` }}>
+                      <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.green, fontWeight: 700, letterSpacing: 1.5, width: "100%", marginBottom: 6 }}>
+                        🔍 {results.length} PARTS FOUND — SELECT TO VIEW:
+                      </div>
+                      {results.map((p, i) => (
+                        <button key={i} onClick={() => { setSelectedPart(i); setFeedback(null); setCorrection(""); setCorrectionSaved(false); }}
+                          style={{ background: selectedPart === i ? `linear-gradient(145deg, ${C.green}, ${C.greenDark})` : C.cardDark, color: selectedPart === i ? "#fff" : C.textDim, border: `1px solid ${selectedPart === i ? C.green : C.border}`, borderRadius: 8, padding: "5px 12px", fontFamily: "'Nunito', sans-serif", fontSize: 11, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
+                          Part {i + 1}: {p.part_name?.split(" ").slice(0, 3).join(" ")}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Part name banner */}
                   <div style={{ background: `linear-gradient(135deg, #1c3010 0%, #0e2208 100%)`, padding: "15px 20px", borderBottom: `2px solid ${C.greenMuted}` }}>
                     <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 18, fontWeight: 900, color: C.green, lineHeight: 1.25 }}>{result.part_name}</div>
