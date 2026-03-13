@@ -157,6 +157,7 @@ export default function AutoScan() {
   const [correctionSaved, setCorrectionSaved] = useState(false);
   const [currentScanId, setCurrentScanId] = useState(null);
   const [dbStatus, setDbStatus] = useState("idle");
+  const [learningCount, setLearningCount] = useState(0);
   const fileRef = useRef();
 
   const saveApiKey = (key) => {
@@ -191,20 +192,41 @@ export default function AutoScan() {
     processFile(e.dataTransfer.files[0]);
   }, []);
 
+  // Fetch past corrections from Supabase to feed back into AI
+  const fetchPastCorrections = async () => {
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/scans?staff_correction=not.is.null&select=part_name,part_category,compatible_vehicles,staff_correction&limit=50&order=created_at.desc`,
+        { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}` } }
+      );
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) return "";
+      const lines = data.map(r =>
+        `- ${r.part_name}${r.part_category ? ` (${r.part_category})` : ""}: Staff corrected compatibility to "${r.staff_correction}"`
+      ).join("\n");
+      setLearningCount(data.length);
+      return `\n\nSTAFF CORRECTION HISTORY (use this to improve your answers):\n${lines}`;
+    } catch { return ""; }
+  };
+
   const scan = async () => {
     if (!imageBase64 || !apiKey) return;
     setLoading(true); setError(null); setResults([]); setSelectedPart(0); setCurrentScanId(null); setFeedback(null); setCorrection(""); setCorrectionSaved(false); setDbStatus("idle");
     try {
+      // Fetch past staff corrections to make AI smarter
+      const corrections = await fetchPastCorrections();
+      const smartPrompt = SYSTEM_PROMPT + corrections;
+
       const res = await fetch("/api/anthropic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: SYSTEM_PROMPT,
+          max_tokens: 1500,
+          system: smartPrompt,
           messages: [{ role: "user", content: [
             { type: "image", source: { type: "base64", media_type: imageMime, data: imageBase64 } },
-            { type: "text", text: "Identify all auto parts visible in this image." }
+            { type: "text", text: "Identify all auto parts visible in this image. Use the staff correction history above to improve your compatibility answers." }
           ]}]
         })
       });
@@ -472,6 +494,27 @@ export default function AutoScan() {
                     </div>
                   </div>
 
+                  {/* Low confidence warning banner */}
+                  {result.confidence === "Low" && (
+                    <div style={{ margin: "10px 16px 0", background: "#2b0a0a", border: "2px solid #d94040", borderRadius: 12, padding: "12px 14px", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                      <span style={{ fontSize: 20 }}>⚠️</span>
+                      <div>
+                        <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 13, fontWeight: 800, color: "#d94040", marginBottom: 4 }}>Low Confidence — Verify Before Pricing</div>
+                        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: "#c08080", lineHeight: 1.6 }}>The AI is not confident about this identification. Please double-check the part manually or use the correction box below to enter the correct info.</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Medium confidence nudge */}
+                  {result.confidence === "Medium" && (
+                    <div style={{ margin: "10px 16px 0", background: "#2b1e00", border: "1px solid #e8a020", borderRadius: 12, padding: "10px 14px", display: "flex", gap: 10, alignItems: "center" }}>
+                      <span style={{ fontSize: 16 }}>🔶</span>
+                      <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: "#c8902a", lineHeight: 1.5 }}>
+                        <strong style={{ color: "#e8a020" }}>Medium confidence</strong> — result is likely correct but worth a quick visual check before pricing.
+                      </div>
+                    </div>
+                  )}
+
                   {/* Detail rows */}
                   <div style={{ padding: "4px 16px 0" }}>
                     {[
@@ -628,7 +671,14 @@ export default function AutoScan() {
         )}
 
         <div style={{ marginTop: 22, textAlign: "center" }}>
-          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.textFaint, letterSpacing: 1.5 }}>BYOT Auto Parts · AI Parts Scanner · Texas · Louisiana · Mississippi</div>
+          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.textFaint, letterSpacing: 1.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+            <span>BYOT Auto Parts · AI Parts Scanner · Texas · Louisiana · Mississippi</span>
+            {learningCount > 0 && (
+              <span style={{ background: "#1e2e18", border: `1px solid ${C.greenMuted}`, color: C.green, borderRadius: 20, padding: "2px 10px", fontSize: 9, fontWeight: 700 }}>
+                🧠 Learning from {learningCount} correction{learningCount !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
