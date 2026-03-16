@@ -159,6 +159,13 @@ export default function AutoScan() {
   const [dbStatus, setDbStatus] = useState("idle");
   const [learningCount, setLearningCount] = useState(0);
   const fileRef = useRef();
+  const videoRef = useRef();
+  const canvasRef = useRef();
+  const streamRef = useRef(null);
+  const [cameraMode, setCameraMode] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
+  const [captured, setCaptured] = useState(false);
 
   const saveApiKey = (key) => {
     setApiKey(key);
@@ -173,16 +180,87 @@ export default function AutoScan() {
     });
   };
 
+  const startCamera = async () => {
+    setCameraError(null); setCaptured(false);
+    setResult(null); setResults([]); setError(null);
+    setImage(null); setImageBase64(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+      setCameraActive(true);
+    } catch (e) {
+      setCameraError("Could not access camera. Make sure you allow camera permissions in your browser.");
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+    setCaptured(false);
+  };
+
+  const captureFrame = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    setImage(dataUrl);
+    setImageBase64(dataUrl.split(",")[1]);
+    setImageMime("image/jpeg");
+    setImageFile(null);
+    setCaptured(true);
+    stopCamera();
+  };
+
+  const retakePhoto = () => {
+    setImage(null); setImageBase64(null);
+    setResults([]); setError(null);
+    setCaptured(false);
+    startCamera();
+  };
+
+  const compressImage = (dataUrl, mimeType) => {
+    return new Promise((resolve) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX = 1280;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          if (width > height) { height = Math.round(height * MAX / width); width = MAX; }
+          else { width = Math.round(width * MAX / height); height = MAX; }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = dataUrl;
+    });
+  };
+
   const processFile = (file) => {
     if (!file || !file.type.startsWith("image/")) return;
     setResults([]); setSelectedPart(0); setError(null); setCurrentScanId(null); setFeedback(null); setCorrection(""); setCorrectionSaved(false); setDbStatus("idle");
-    setImageMime(file.type || "image/jpeg");
+    setImageMime("image/jpeg");
     setImageFile(file);
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target.result;
-      setImage(dataUrl);
-      setImageBase64(dataUrl.split(",")[1]);
+    reader.onload = async (e) => {
+      const compressed = await compressImage(e.target.result, file.type);
+      setImage(compressed);
+      setImageBase64(compressed.split(",")[1]);
     };
     reader.readAsDataURL(file);
   };
@@ -360,9 +438,10 @@ export default function AutoScan() {
 
         {/* ── NAV CARDS ── */}
         <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>
-          <NavCard icon="🔍" label="Scan Part"    sub="Identify parts"   active={tab === "scan"}    onClick={() => setTab("scan")} />
-          <NavCard icon="📋" label="History"      sub="Past scans"       active={tab === "history"} onClick={() => setTab("history")} />
-          <NavCard icon="📊" label="Part Stats"   sub="Session summary"  active={tab === "stats"}   onClick={() => setTab("stats")} />
+          <NavCard icon="🔍" label="Scan Part"    sub="Upload photo"     active={tab === "scan"}    onClick={() => { stopCamera(); setTab("scan"); }} />
+          <NavCard icon="📹" label="Live Camera"  sub="Capture live"     active={tab === "camera"}  onClick={() => { setTab("camera"); setTimeout(startCamera, 100); }} />
+          <NavCard icon="📋" label="History"      sub="Past scans"       active={tab === "history"} onClick={() => { stopCamera(); setTab("history"); }} />
+          <NavCard icon="📊" label="Part Stats"   sub="Session summary"  active={tab === "stats"}   onClick={() => { stopCamera(); setTab("stats"); }} />
         </div>
 
         {/* ── SCAN TAB ── */}
