@@ -1,763 +1,1007 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
-const SUPABASE_URL = "https://vcdathdwdziivvuyqaex.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjZGF0aGR3ZHppaXZ2dXlxYWV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNjA4NDYsImV4cCI6MjA4ODgzNjg0Nn0.iCQz535Yj1VQvSJdY3JKnN0i7DMA_bKuF6U_xjBNnD0";
+const GOOGLE_VISION_KEY = "AIzaSyAS-5aNRbCTApLSI90ygu4lim8OJxNk1es";
 
-const trySaveToSupabase = async (data, imageFile, imageObjectUrl) => {
-  try {
-    let image_url = null;
-    if (imageFile) {
-      const ext = (imageFile.name || "part").split(".").pop() || "jpg";
-      const path = `scans/${Date.now()}.${ext}`;
-      const upRes = await fetch(`${SUPABASE_URL}/storage/v1/object/part-images/${path}`, {
-        method: "POST",
-        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": imageFile.type },
-        body: imageFile
-      });
-      if (upRes.ok) image_url = `${SUPABASE_URL}/storage/v1/object/public/part-images/${path}`;
-    }
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/scans`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Prefer": "return=representation" },
-      body: JSON.stringify({
-        part_name: data.part_name, part_category: data.part_category,
-        part_number: data.part_number_visible, compatible_vehicles: data.compatible_vehicles,
-        condition: data.condition, condition_notes: data.condition_notes,
-        estimated_value: data.estimated_value, confidence: data.confidence,
-        notes: data.notes, image_url
-      })
-    });
-    const json = await res.json();
-    return Array.isArray(json) && json[0]?.id ? { id: json[0].id, image_url } : { id: null, image_url: imageObjectUrl };
-  } catch { return { id: null, image_url: imageObjectUrl }; }
+const PRICES = {
+  "A/C COMPRESSOR":{"waco":44.99,"bryan":44.99,"beaumont":44.99,"batonRouge":44.99,"jackson":44.99},
+  "A/C CONDENSER":{"waco":29.99,"bryan":29.99,"beaumont":29.99,"batonRouge":29.99,"jackson":29.99},
+  "A/C EVAPORATOR":{"waco":24.99,"bryan":24.99,"beaumont":24.99,"batonRouge":24.99,"jackson":24.99},
+  "ALTERNATOR":{"waco":30.99,"bryan":30.99,"beaumont":30.99,"batonRouge":30.99,"jackson":30.99},
+  "AXLE (ONE SIDE)":{"waco":50.99,"bryan":50.99,"beaumont":50.99,"batonRouge":50.99,"jackson":50.99},
+  "BATTERY (USED)":{"waco":35.99,"bryan":35.99,"beaumont":35.99,"batonRouge":35.99,"jackson":35.99},
+  "BATTERY (USED) PREMIUM":{"waco":59.99,"bryan":59.99,"beaumont":59.99,"batonRouge":59.99,"jackson":59.99},
+  "BRAKE ABS MODULE":{"waco":26.99,"bryan":26.99,"beaumont":26.99,"batonRouge":26.99,"jackson":26.99},
+  "BRAKE BOOSTER":{"waco":32.99,"bryan":32.99,"beaumont":32.99,"batonRouge":32.99,"jackson":32.99},
+  "BRAKE CALIPER":{"waco":16.99,"bryan":16.99,"beaumont":16.99,"batonRouge":16.99,"jackson":16.99},
+  "BRAKE DRUM W/HUB":{"waco":21.99,"bryan":21.99,"beaumont":21.99,"batonRouge":21.99,"jackson":21.99},
+  "BRAKE MASTER CYLINDER":{"waco":19.99,"bryan":19.99,"beaumont":19.99,"batonRouge":19.99,"jackson":19.99},
+  "BRAKE ROTOR (NO HUB)":{"waco":14.99,"bryan":14.99,"beaumont":14.99,"batonRouge":14.99,"jackson":14.99},
+  "BRAKE ROTOR W/HUB":{"waco":25.99,"bryan":25.99,"beaumont":25.99,"batonRouge":25.99,"jackson":25.99},
+  "BUMPER ASSEMBLY CAR":{"waco":69.99,"bryan":69.99,"beaumont":69.99,"batonRouge":69.99,"jackson":69.99},
+  "BUMPER ASSEMBLY TRUCK":{"waco":73.99,"bryan":73.99,"beaumont":73.99,"batonRouge":73.99,"jackson":73.99},
+  "BUMPER COVER BARE":{"waco":49.99,"bryan":49.99,"beaumont":49.99,"batonRouge":49.99,"jackson":49.99},
+  "CAM SHAFT":{"waco":29.99,"bryan":29.99,"beaumont":29.99,"batonRouge":29.99,"jackson":29.99},
+  "COIL PACK":{"waco":30.99,"bryan":30.99,"beaumont":30.99,"batonRouge":30.99,"jackson":30.99},
+  "COMPUTER BRAIN BOX":{"waco":45.99,"bryan":45.99,"beaumont":45.99,"batonRouge":45.99,"jackson":45.99},
+  "CONTROL ARM":{"waco":24.99,"bryan":24.99,"beaumont":24.99,"batonRouge":24.99,"jackson":24.99},
+  "CRANKSHAFT":{"waco":45.99,"bryan":45.99,"beaumont":45.99,"batonRouge":45.99,"jackson":45.99},
+  "CV HALF SHAFT AXLE":{"waco":20.99,"bryan":20.99,"beaumont":20.99,"batonRouge":20.99,"jackson":20.99},
+  "C-V AXLE FRONT DRIVE":{"waco":29.99,"bryan":29.99,"beaumont":29.99,"batonRouge":29.99,"jackson":29.99},
+  "CYL HEAD-DOHC ANY":{"waco":99.99,"bryan":99.99,"beaumont":99.99,"batonRouge":99.99,"jackson":99.99},
+  "CYL HEAD-OHV STEEL":{"waco":67.99,"bryan":67.99,"beaumont":67.99,"batonRouge":67.99,"jackson":67.99},
+  "CYL HEAD-SOHC ALUM":{"waco":79.99,"bryan":79.99,"beaumont":79.99,"batonRouge":79.99,"jackson":79.99},
+  "DASH (BARE)":{"waco":39.99,"bryan":39.99,"beaumont":39.99,"batonRouge":39.99,"jackson":39.99},
+  "DASH (LOADED)":{"waco":88.99,"bryan":88.99,"beaumont":88.99,"batonRouge":88.99,"jackson":88.99},
+  "DIESEL INJECTOR PUMP":{"waco":39.99,"bryan":39.99,"beaumont":39.99,"batonRouge":39.99,"jackson":39.99},
+  "DISTRIBUTOR":{"waco":35.99,"bryan":35.99,"beaumont":35.99,"batonRouge":35.99,"jackson":35.99},
+  "DOOR (CAR)":{"waco":67.99,"bryan":67.99,"beaumont":67.99,"batonRouge":67.99,"jackson":67.99},
+  "DOOR (TRUCK)":{"waco":70.99,"bryan":70.99,"beaumont":70.99,"batonRouge":70.99,"jackson":70.99},
+  "DOOR BARE (CAR)":{"waco":49.99,"bryan":49.99,"beaumont":49.99,"batonRouge":49.99,"jackson":49.99},
+  "DOOR BARE (TRUCK)":{"waco":52.99,"bryan":52.99,"beaumont":52.99,"batonRouge":52.99,"jackson":52.99},
+  "DOOR GLASS":{"waco":30.99,"bryan":30.99,"beaumont":30.99,"batonRouge":30.99,"jackson":30.99},
+  "DOOR HANDLE OUTSIDE":{"waco":12.99,"bryan":12.99,"beaumont":12.99,"batonRouge":12.99,"jackson":12.99},
+  "DOOR LOCK ACTUATOR":{"waco":10.99,"bryan":10.99,"beaumont":10.99,"batonRouge":10.99,"jackson":10.99},
+  "DRIVE SHAFT":{"waco":28.99,"bryan":28.99,"beaumont":28.99,"batonRouge":28.99,"jackson":28.99},
+  "ENGINE SHORT BLOCK":{"waco":199.99,"bryan":199.99,"beaumont":199.99,"batonRouge":199.99,"jackson":199.99},
+  "ENGINE-DIESEL":{"waco":309.99,"bryan":309.99,"beaumont":309.99,"batonRouge":309.99,"jackson":309.99},
+  "ENGINE-DIESEL W/ACC":{"waco":359.99,"bryan":359.99,"beaumont":359.99,"batonRouge":359.99,"jackson":359.99},
+  "ENGINE-GAS":{"waco":249.99,"bryan":249.99,"beaumont":249.99,"batonRouge":249.99,"jackson":249.99},
+  "ENGINE-GAS W/ACC":{"waco":279.99,"bryan":279.99,"beaumont":279.99,"batonRouge":279.99,"jackson":279.99},
+  "EXHAUST MANIFOLD":{"waco":26.99,"bryan":26.99,"beaumont":26.99,"batonRouge":26.99,"jackson":26.99},
+  "FAN ASSY DBL (ELEC)":{"waco":40.99,"bryan":40.99,"beaumont":40.99,"batonRouge":40.99,"jackson":40.99},
+  "FAN ASSY SNGL (ELEC)":{"waco":30.99,"bryan":30.99,"beaumont":30.99,"batonRouge":30.99,"jackson":30.99},
+  "FENDER BARE (CAR)":{"waco":48.99,"bryan":48.99,"beaumont":48.99,"batonRouge":48.99,"jackson":48.99},
+  "FENDER BARE (TRUCK)":{"waco":52.99,"bryan":52.99,"beaumont":52.99,"batonRouge":52.99,"jackson":52.99},
+  "FLYWHEEL":{"waco":21.99,"bryan":21.99,"beaumont":21.99,"batonRouge":21.99,"jackson":21.99},
+  "FRONT AXLE ASSY 4X4":{"waco":199.99,"bryan":199.99,"beaumont":199.99,"batonRouge":199.99,"jackson":199.99},
+  "FRONT CLIP CAR":{"waco":369.99,"bryan":369.99,"beaumont":369.99,"batonRouge":369.99,"jackson":369.99},
+  "FRONT CLIP TRUCK":{"waco":399.99,"bryan":399.99,"beaumont":399.99,"batonRouge":399.99,"jackson":399.99},
+  "FUEL INJECTOR (EACH)":{"waco":9.99,"bryan":9.99,"beaumont":9.99,"batonRouge":9.99,"jackson":9.99},
+  "FUEL PUMP ELECTRIC":{"waco":32.99,"bryan":32.99,"beaumont":32.99,"batonRouge":32.99,"jackson":32.99},
+  "FUEL TANK SEND PUMP":{"waco":35.99,"bryan":35.99,"beaumont":35.99,"batonRouge":35.99,"jackson":35.99},
+  "FUSE BOX (BARE)":{"waco":19.99,"bryan":19.99,"beaumont":19.99,"batonRouge":19.99,"jackson":19.99},
+  "FUSE BOX (LOADED)":{"waco":29.99,"bryan":29.99,"beaumont":29.99,"batonRouge":29.99,"jackson":29.99},
+  "GRILLE CAR":{"waco":26.99,"bryan":26.99,"beaumont":26.99,"batonRouge":26.99,"jackson":26.99},
+  "GRILLE TRUCK":{"waco":32.99,"bryan":32.99,"beaumont":32.99,"batonRouge":32.99,"jackson":32.99},
+  "HARMONIC BALANCER":{"waco":27.99,"bryan":27.99,"beaumont":27.99,"batonRouge":27.99,"jackson":27.99},
+  "HEATER BLOWER MOTOR":{"waco":23.99,"bryan":23.99,"beaumont":23.99,"batonRouge":23.99,"jackson":23.99},
+  "HEATER CORE":{"waco":15.99,"bryan":15.99,"beaumont":15.99,"batonRouge":15.99,"jackson":15.99},
+  "HI PRESSURE OIL PUMP":{"waco":171.99,"bryan":171.99,"beaumont":171.99,"batonRouge":171.99,"jackson":171.99},
+  "HOOD (CAR)":{"waco":55.99,"bryan":55.99,"beaumont":55.99,"batonRouge":55.99,"jackson":55.99},
+  "HOOD (TRUCK)":{"waco":58.99,"bryan":58.99,"beaumont":58.99,"batonRouge":58.99,"jackson":58.99},
+  "HUB & BEARING ONLY":{"waco":29.99,"bryan":29.99,"beaumont":29.99,"batonRouge":29.99,"jackson":29.99},
+  "HUB/KNUCK ASSY (CAR)":{"waco":39.99,"bryan":39.99,"beaumont":39.99,"batonRouge":39.99,"jackson":39.99},
+  "HUB/KNUCK ASSY (TRUCK)":{"waco":43.99,"bryan":43.99,"beaumont":43.99,"batonRouge":43.99,"jackson":43.99},
+  "HYBRID BATTERY":{"waco":125.99,"bryan":125.99,"beaumont":125.99,"batonRouge":125.99,"jackson":125.99},
+  "INSTRUMENT CLUSTER":{"waco":35.99,"bryan":35.99,"beaumont":35.99,"batonRouge":35.99,"jackson":35.99},
+  "INTAKE MANIFOLD (1PC)":{"waco":37.99,"bryan":37.99,"beaumont":37.99,"batonRouge":37.99,"jackson":37.99},
+  "INTAKE MANIFOLD (2PC)":{"waco":55.99,"bryan":55.99,"beaumont":55.99,"batonRouge":55.99,"jackson":55.99},
+  "INTERIOR DOOR PANEL":{"waco":21.99,"bryan":21.99,"beaumont":21.99,"batonRouge":21.99,"jackson":21.99},
+  "LEAF SPRING":{"waco":24.99,"bryan":24.99,"beaumont":24.99,"batonRouge":24.99,"jackson":24.99},
+  "M.A.F. SENSOR":{"waco":33.99,"bryan":33.99,"beaumont":33.99,"batonRouge":33.99,"jackson":33.99},
+  "MUFFLER (ANY)":{"waco":15.99,"bryan":15.99,"beaumont":15.99,"batonRouge":15.99,"jackson":15.99},
+  "OIL PAN":{"waco":19.99,"bryan":19.99,"beaumont":19.99,"batonRouge":19.99,"jackson":19.99},
+  "OIL PAN - ALUMINUM":{"waco":23.99,"bryan":23.99,"beaumont":23.99,"batonRouge":23.99,"jackson":23.99},
+  "OIL PUMP":{"waco":20.99,"bryan":20.99,"beaumont":20.99,"batonRouge":20.99,"jackson":20.99},
+  "PISTON AND ROD ASSY":{"waco":27.99,"bryan":27.99,"beaumont":27.99,"batonRouge":27.99,"jackson":27.99},
+  "POWER MIRROR - DOOR":{"waco":27.99,"bryan":27.99,"beaumont":27.99,"batonRouge":27.99,"jackson":27.99},
+  "POWER STEERING PUMP":{"waco":28.99,"bryan":28.99,"beaumont":28.99,"batonRouge":28.99,"jackson":28.99},
+  "POWER STEERING PUMP ELECTRIC":{"waco":44.99,"bryan":44.99,"beaumont":44.99,"batonRouge":44.99,"jackson":44.99},
+  "RACK AND PINION CAR":{"waco":49.99,"bryan":49.99,"beaumont":49.99,"batonRouge":49.99,"jackson":49.99},
+  "RACK AND PINION ELEC":{"waco":66.99,"bryan":66.99,"beaumont":66.99,"batonRouge":66.99,"jackson":66.99},
+  "RACK AND PINION TRUCK":{"waco":59.99,"bryan":59.99,"beaumont":59.99,"batonRouge":59.99,"jackson":59.99},
+  "RADIATOR CAR":{"waco":56.99,"bryan":56.99,"beaumont":56.99,"batonRouge":56.99,"jackson":56.99},
+  "RADIATOR TRUCK":{"waco":62.99,"bryan":62.99,"beaumont":62.99,"batonRouge":62.99,"jackson":62.99},
+  "RADIO (NO CD)":{"waco":18.99,"bryan":18.99,"beaumont":18.99,"batonRouge":18.99,"jackson":18.99},
+  "RADIO W/ SCREEN":{"waco":54.99,"bryan":54.99,"beaumont":54.99,"batonRouge":54.99,"jackson":54.99},
+  "RADIO W/CD PLAYER":{"waco":31.99,"bryan":31.99,"beaumont":31.99,"batonRouge":31.99,"jackson":31.99},
+  "REAR HATCH ASSY":{"waco":114.99,"bryan":114.99,"beaumont":114.99,"batonRouge":114.99,"jackson":114.99},
+  "REAR QUARTER PANEL":{"waco":63.99,"bryan":63.99,"beaumont":63.99,"batonRouge":63.99,"jackson":63.99},
+  "REAREND NO BRAKE-CAR":{"waco":149.99,"bryan":149.99,"beaumont":149.99,"batonRouge":149.99,"jackson":149.99},
+  "REAREND NO BRAKE-TRUCK":{"waco":168.99,"bryan":168.99,"beaumont":168.99,"batonRouge":168.99,"jackson":168.99},
+  "REAREND W/BRAKE (CAR)":{"waco":159.99,"bryan":159.99,"beaumont":159.99,"batonRouge":159.99,"jackson":159.99},
+  "REAREND W/BRAKE (TRUCK)":{"waco":179.99,"bryan":179.99,"beaumont":179.99,"batonRouge":179.99,"jackson":179.99},
+  "ROCKER ARM ASSY":{"waco":30.99,"bryan":30.99,"beaumont":30.99,"batonRouge":30.99,"jackson":30.99},
+  "SEAT- 60/40 BENCH":{"waco":43.99,"bryan":43.99,"beaumont":43.99,"batonRouge":43.99,"jackson":43.99},
+  "SEAT-BENCH-CLOTH":{"waco":34.99,"bryan":34.99,"beaumont":34.99,"batonRouge":34.99,"jackson":34.99},
+  "SEAT-BENCH-LEATHER":{"waco":60.99,"bryan":60.99,"beaumont":60.99,"batonRouge":60.99,"jackson":60.99},
+  "SEAT-BUCKET-CLOTH":{"waco":28.99,"bryan":28.99,"beaumont":28.99,"batonRouge":28.99,"jackson":28.99},
+  "SEAT-BUCKET-LEATHER":{"waco":44.99,"bryan":44.99,"beaumont":44.99,"batonRouge":44.99,"jackson":44.99},
+  "SHOCK - STANDARD":{"waco":9.99,"bryan":9.99,"beaumont":9.99,"batonRouge":9.99,"jackson":9.99},
+  "STARTER":{"waco":30.99,"bryan":30.99,"beaumont":30.99,"batonRouge":30.99,"jackson":30.99},
+  "STEERING COLUMN BARE":{"waco":34.99,"bryan":34.99,"beaumont":34.99,"batonRouge":34.99,"jackson":34.99},
+  "STEERING GEAR BOX":{"waco":29.99,"bryan":29.99,"beaumont":29.99,"batonRouge":29.99,"jackson":29.99},
+  "STEERING WHEEL":{"waco":13.99,"bryan":13.99,"beaumont":13.99,"batonRouge":13.99,"jackson":13.99},
+  "STRUT ASSEMBLY":{"waco":27.99,"bryan":27.99,"beaumont":27.99,"batonRouge":27.99,"jackson":27.99},
+  "SUB FRAME - LARGE":{"waco":169.99,"bryan":169.99,"beaumont":169.99,"batonRouge":169.99,"jackson":169.99},
+  "SUB FRAME - SMALL":{"waco":149.99,"bryan":149.99,"beaumont":149.99,"batonRouge":149.99,"jackson":149.99},
+  "SUPERCHARGER":{"waco":78.99,"bryan":78.99,"beaumont":78.99,"batonRouge":78.99,"jackson":78.99},
+  "SWAY BAR":{"waco":22.99,"bryan":22.99,"beaumont":22.99,"batonRouge":22.99,"jackson":22.99},
+  "TAIL GATE":{"waco":59.99,"bryan":59.99,"beaumont":59.99,"batonRouge":59.99,"jackson":59.99},
+  "TAIL LIGHT ASSY LARGE":{"waco":26.99,"bryan":26.99,"beaumont":26.99,"batonRouge":26.99,"jackson":26.99},
+  "TAIL LIGHT ASSY SMALL":{"waco":19.99,"bryan":19.99,"beaumont":19.99,"batonRouge":19.99,"jackson":19.99},
+  "THROTTLE BODY W/SENS":{"waco":45.99,"bryan":45.99,"beaumont":45.99,"batonRouge":45.99,"jackson":45.99},
+  "TIE ROD EACH":{"waco":12.99,"bryan":12.99,"beaumont":12.99,"batonRouge":12.99,"jackson":12.99},
+  "TIMING CHAIN":{"waco":9.99,"bryan":9.99,"beaumont":9.99,"batonRouge":9.99,"jackson":9.99},
+  "TORQUE CONVERTER":{"waco":32.99,"bryan":32.99,"beaumont":32.99,"batonRouge":32.99,"jackson":32.99},
+  "TRANSFER CASE (4X4)":{"waco":89.99,"bryan":89.99,"beaumont":89.99,"batonRouge":89.99,"jackson":89.99},
+  "TRANSMISSION FWD":{"waco":164.99,"bryan":164.99,"beaumont":164.99,"batonRouge":164.99,"jackson":164.99},
+  "TRANSMISSION RWD":{"waco":184.99,"bryan":184.99,"beaumont":184.99,"batonRouge":184.99,"jackson":184.99},
+  "TRUCK BED BARE":{"waco":239.99,"bryan":239.99,"beaumont":239.99,"batonRouge":239.99,"jackson":239.99},
+  "TRUCK BED LOADED":{"waco":269.99,"bryan":269.99,"beaumont":269.99,"batonRouge":269.99,"jackson":269.99},
+  "TRUNK LID BARE":{"waco":44.99,"bryan":44.99,"beaumont":44.99,"batonRouge":44.99,"jackson":44.99},
+  "TRUNK LID LOADED":{"waco":108.99,"bryan":108.99,"beaumont":108.99,"batonRouge":108.99,"jackson":108.99},
+  "TURBO CHARGER":{"waco":74.99,"bryan":74.99,"beaumont":74.99,"batonRouge":74.99,"jackson":74.99},
+  "V10/DSL ENGINE BLOCK":{"waco":289.99,"bryan":289.99,"beaumont":289.99,"batonRouge":289.99,"jackson":289.99},
+  "WATER PUMP":{"waco":12.99,"bryan":12.99,"beaumont":12.99,"batonRouge":12.99,"jackson":12.99},
+  "WATER PUMP (ELECTRIC)":{"waco":23.99,"bryan":23.99,"beaumont":23.99,"batonRouge":23.99,"jackson":23.99},
+  "WHEEL ALUMINUM":{"waco":31.99,"bryan":31.99,"beaumont":31.99,"batonRouge":31.99,"jackson":31.99},
+  "WHEEL STEEL":{"waco":14.99,"bryan":14.99,"beaumont":14.99,"batonRouge":14.99,"jackson":14.99},
+  "WINDOW MOTOR":{"waco":19.99,"bryan":19.99,"beaumont":19.99,"batonRouge":19.99,"jackson":19.99},
+  "WINDOW REG. W/MOTOR":{"waco":30.99,"bryan":30.99,"beaumont":30.99,"batonRouge":30.99,"jackson":30.99},
+  "WINDSHIELD":{"waco":32.99,"bryan":32.99,"beaumont":32.99,"batonRouge":32.99,"jackson":32.99},
+  "WIPER MOTOR":{"waco":19.99,"bryan":19.99,"beaumont":19.99,"batonRouge":19.99,"jackson":19.99},
+  "WIRE HARNESS >6FT":{"waco":44.99,"bryan":44.99,"beaumont":44.99,"batonRouge":44.99,"jackson":44.99},
+  "WIRE HARNESS <4FT":{"waco":18.99,"bryan":18.99,"beaumont":18.99,"batonRouge":18.99,"jackson":18.99},
 };
 
-const tryUpdateFeedback = async (id, feedback) => {
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/scans?id=eq.${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}` },
-      body: JSON.stringify({ staff_feedback: feedback })
-    });
-  } catch { }
-};
+const LOCATIONS = [
+  {key:"waco",label:"Waco, TX"},
+  {key:"bryan",label:"Bryan, TX"},
+  {key:"beaumont",label:"Beaumont, TX"},
+  {key:"batonRouge",label:"Baton Rouge, LA"},
+  {key:"jackson",label:"Jackson, MS"},
+];
 
-const tryUpdateCorrection = async (id, correction) => {
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/scans?id=eq.${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}` },
-      body: JSON.stringify({ staff_correction: correction })
-    });
-  } catch { }
-};
-
-const SYSTEM_PROMPT = `You are an expert auto mechanic and parts specialist with 30 years of experience working with salvage yards and used auto parts. When shown an image, identify ALL visible auto or mechanical parts and respond ONLY with valid JSON (no markdown, no code blocks).
-
-If there is ONE part, return a JSON array with one object.
-If there are MULTIPLE parts, return a JSON array with one object per part.
-
-Each object must follow this exact structure:
-{
-  "part_name": "Full descriptive name of the part",
-  "part_category": "Category (e.g., Engine, Brakes, Suspension, Electrical, Filters, Belts & Hoses)",
-  "part_number_visible": "Any visible part numbers or OEM numbers, or null",
-  "compatible_vehicles": "General compatibility info",
-  "condition": "Good / Fair / Worn / Damaged / Unknown",
-  "condition_notes": "Brief description of visible wear or damage",
-  "estimated_value": "Rough price range in USD if known, or null",
-  "confidence": "High / Medium / Low",
-  "notes": "Any additional important info for a parts counter staff member"
+function findPrice(partName) {
+  if (!partName) return null;
+  const n = partName.toUpperCase().trim();
+  if (PRICES[n]) return PRICES[n];
+  let best = null, bestScore = 0;
+  for (const k of Object.keys(PRICES)) {
+    const hits = k.split(" ").filter(w => w.length > 2 && n.includes(w)).length;
+    const score = hits / Math.max(k.split(" ").length, 1);
+    if (score > bestScore) { bestScore = score; best = k; }
+  }
+  return bestScore > 0.4 ? PRICES[best] : null;
 }
 
-Always return an array even if only one part is found. Example: [{ ... }]`;
-
-// Softer lime green matching BYOT screenshot — not neon, more natural
+// ── THEME ──────────────────────────────────────────────────────
+const N = "#39ff14"; // neon green
 const C = {
-  pageBg:    "#272727",
-  panelBg:   "#303030",
-  cardBg:    "#383838",
-  cardDark:  "#2c2c2c",
-  border:    "#454545",
-  borderHi:  "#5a5a5a",
-  green:     "#5BBF2A",   // softer lime, matches BYOT app
-  greenLight:"#6ed93a",
-  greenDark: "#4aaa1e",
-  greenMuted:"#3d7a1c",
-  greenGlow: "#5BBF2A28",
-  white:     "#f0f0f0",
-  textMid:   "#b8b8b8",
-  textDim:   "#888",
-  textFaint: "#555",
+  bg:"#000",
+  surface:"#0d0d0d",
+  card:"#111",
+  cardHi:"#161616",
+  border:"#1e1e1e",
+  borderHi:"#2a2a2a",
+  neon:N,
+  neonDim:"#1a3d0a",
+  neonBorder:"#2a5c12",
+  white:"#ffffff",
+  textMid:"#aaa",
+  textDim:"#666",
+  textFaint:"#333",
+  red:"#ff3b3b",
+  redDim:"#2a0000",
+  redBorder:"#5c0000",
+  amber:"#ffb800",
+  blue:"#4da6ff",
+  blueDim:"#001a33",
+  blueBorder:"#003366",
 };
 
 const COND = {
-  Good:    { bg: "#0e2208", text: "#5BBF2A", border: "#2a5c12" },
-  Fair:    { bg: "#2b2000", text: "#e8a020", border: "#5c4000" },
-  Worn:    { bg: "#2b1800", text: "#e07828", border: "#5c3000" },
-  Damaged: { bg: "#280a0a", text: "#d94040", border: "#581212" },
-  Unknown: { bg: "#303030", text: "#888",    border: "#454545" },
+  Good:   {bg:"#051205",text:N,border:"#1a4a1a"},
+  Fair:   {bg:"#1a1000",text:"#ffb800",border:"#4a3000"},
+  Worn:   {bg:"#1a0800",text:"#ff8c00",border:"#4a2000"},
+  Damaged:{bg:C.redDim,text:C.red,border:C.redBorder},
+  Unknown:{bg:"#111",text:"#555",border:"#222"},
 };
-const CONF_COLOR = { High: "#5BBF2A", Medium: "#e8a020", Low: "#d94040" };
+const CONF_COLOR = {High:N,Medium:"#ffb800",Low:C.red};
 
-const BYOTLogo = ({ size = 50 }) => (
-  <svg width={size} height={size} viewBox="0 0 80 80" fill="none">
-    <rect width="80" height="80" rx="14" fill="#1c1c1c"/>
-    <rect x="2" y="2" width="76" height="76" rx="13" fill="none" stroke="#5BBF2A" strokeWidth="2"/>
-    <text x="40" y="26" textAnchor="middle" fill="#5BBF2A" fontSize="12" fontWeight="900" fontFamily="'Nunito', sans-serif" letterSpacing="1">B.Y.O.T.</text>
-    <text x="40" y="40" textAnchor="middle" fill="#f0f0f0" fontSize="8.5" fontWeight="700" fontFamily="'Nunito', sans-serif">AUTO PARTS</text>
-    <line x1="14" y1="46" x2="66" y2="46" stroke="#5BBF2A" strokeWidth="1" opacity="0.4"/>
-    <text x="40" y="57" textAnchor="middle" fill="#5BBF2A" fontSize="6" fontWeight="600" fontFamily="'Nunito', sans-serif">AI PARTS SCANNER</text>
+const SYSTEM_PROMPT = `You are an expert automotive parts identification specialist with 35 years of experience at salvage yards and OEM dealerships.
+
+CRITICAL RULES:
+- Identify EVERY individual part visible in the image separately
+- Each part MUST be identified independently — do NOT assume parts in the same photo came from the same vehicle
+- Use visible part numbers, casting marks, shape, connectors, and design cues for each part independently
+
+Respond ONLY with a valid JSON array — no markdown, no code blocks.
+
+Each object:
+{
+  "part_name": "Full descriptive name",
+  "part_category": "Engine|Transmission|Brakes|Suspension|Steering|Electrical|Body|Interior|Cooling|Fuel|Exhaust|HVAC|Drivetrain",
+  "part_number_visible": "visible part number or null",
+  "primary_vehicle": {
+    "year_range": "e.g. 2005-2010",
+    "make": "e.g. Toyota",
+    "model": "e.g. Camry",
+    "trim": "e.g. LE or All Trims",
+    "engine": "e.g. 2.4L 4-Cyl or All Engines"
+  },
+  "also_fits": [{"year_range":"...","make":"...","model":"...","trim":"...","engine":"..."}],
+  "condition": "Good|Fair|Worn|Damaged|Unknown",
+  "condition_notes": "brief condition description",
+  "identification_confidence": "High|Medium|Low",
+  "identification_reasoning": "what features led to this identification",
+  "notes": "extra info for salvage yard staff"
+}
+Always return an array.`;
+
+const Logo = () => (
+  <svg width="44" height="44" viewBox="0 0 80 80" fill="none">
+    <rect width="80" height="80" rx="12" fill="#000"/>
+    <rect x="2" y="2" width="76" height="76" rx="11" fill="none" stroke={N} strokeWidth="2"/>
+    <text x="40" y="26" textAnchor="middle" fill={N} fontSize="11" fontWeight="900" fontFamily="monospace" letterSpacing="2">B.Y.O.T.</text>
+    <text x="40" y="40" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="700" fontFamily="sans-serif">AUTO PARTS</text>
+    <line x1="14" y1="46" x2="66" y2="46" stroke={N} strokeWidth="1" opacity="0.3"/>
+    <text x="40" y="57" textAnchor="middle" fill={N} fontSize="5.5" fontWeight="600" fontFamily="monospace" letterSpacing="1">AI SCANNER</text>
   </svg>
 );
 
-const NavCard = ({ icon, label, sub, active, onClick }) => (
-  <button onClick={onClick} style={{
-    background: active ? `linear-gradient(145deg, #4aaa1e, #3d8f18)` : C.cardBg,
-    border: `2px solid ${active ? C.green : C.border}`,
-    borderRadius: 18, padding: "13px 8px",
-    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-    gap: 5, cursor: "pointer", flex: 1, transition: "all 0.18s",
-    boxShadow: active ? `0 4px 18px ${C.greenGlow}` : "0 2px 8px #00000030",
-  }}>
-    <span style={{ fontSize: 20 }}>{icon}</span>
-    <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: 11, fontWeight: 800, color: active ? "#fff" : C.green, letterSpacing: 0.5, textAlign: "center", lineHeight: 1.2 }}>{label}</span>
-    {sub && <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: 8, color: active ? "#d0f0c0" : C.textDim, letterSpacing: 0.5 }}>{sub}</span>}
-  </button>
-);
+const Divider = () => <div style={{borderTop:`1px solid ${C.border}`,margin:"10px 0"}}/>;
 
-const Label = ({ children }) => (
-  <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 9, fontWeight: 700, color: C.textDim, letterSpacing: 2, marginBottom: 8, textTransform: "uppercase" }}>{children}</div>
-);
-
-const CardHeader = ({ icon, title }) => (
-  <div style={{ background: "#1e1e1e", padding: "11px 18px", borderBottom: `2px solid ${C.green}`, display: "flex", alignItems: "center", gap: 9 }}>
-    <span style={{ fontSize: 15 }}>{icon}</span>
-    <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: 13, fontWeight: 800, color: C.green, letterSpacing: 1 }}>{title}</span>
-  </div>
+const Badge = ({children,color=N,bg,border}) => (
+  <span style={{background:bg||"#051205",border:`1px solid ${border||C.neonBorder}`,color,borderRadius:6,padding:"2px 9px",fontSize:9,fontWeight:700,letterSpacing:.5,display:"inline-block"}}>
+    {children}
+  </span>
 );
 
 export default function AutoScan() {
-  const [tab, setTab] = useState("scan");
-  const [apiKey, setApiKey] = useState(() => { try { return localStorage.getItem("byot_api_key") || ""; } catch { return ""; } });
-  const [keySubmitted, setKeySubmitted] = useState(() => { try { return !!localStorage.getItem("byot_api_key"); } catch { return false; } });
+  const [apiKey, setApiKey] = useState(() => { try { return localStorage.getItem("byot_api_key")||""; } catch { return ""; }});
+  const [keySubmitted, setKeySubmitted] = useState(() => { try { return !!localStorage.getItem("byot_api_key"); } catch { return false; }});
   const [showKeyInput, setShowKeyInput] = useState(false);
+  const [tab, setTab] = useState("scan");
   const [image, setImage] = useState(null);
-  const [imageFile, setImageFile] = useState(null);
   const [imageBase64, setImageBase64] = useState(null);
   const [imageMime, setImageMime] = useState("image/jpeg");
+  const [imageFile, setImageFile] = useState(null);
   const [results, setResults] = useState([]);
   const [selectedPart, setSelectedPart] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("byot_history") || "[]"); } catch { return []; } });
+  const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("byot_hist")||"[]"); } catch { return []; }});
+  const [priceSearch, setPriceSearch] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState("waco");
   const [feedback, setFeedback] = useState(null);
-  const [correction, setCorrection] = useState("");
+  const [correction, setCorrection] = useState({part_name:"",vehicle:"",notes:""});
   const [correctionSaved, setCorrectionSaved] = useState(false);
-  const [currentScanId, setCurrentScanId] = useState(null);
-  const [dbStatus, setDbStatus] = useState("idle");
   const [learningCount, setLearningCount] = useState(0);
+  const [visionUsed, setVisionUsed] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
+  const [captured, setCaptured] = useState(false);
+  const [autoScan, setAutoScan] = useState(false);
+  const [motionStatus, setMotionStatus] = useState("idle");
+  const [countdown, setCountdown] = useState(0);
+
   const fileRef = useRef();
   const videoRef = useRef();
   const canvasRef = useRef();
   const streamRef = useRef(null);
-  const [cameraMode, setCameraMode] = useState(false);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState(null);
-  const [captured, setCaptured] = useState(false);
+  const motionIntervalRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
+  const prevPixelsRef = useRef(null);
+  const autoScanEnabledRef = useRef(false);
+  const scanningRef = useRef(false);
 
-  const saveApiKey = (key) => {
-    setApiKey(key);
-    try { if (key) localStorage.setItem("byot_api_key", key); else localStorage.removeItem("byot_api_key"); } catch {}
+  const saveKey = k => {
+    setApiKey(k);
+    try { k ? localStorage.setItem("byot_api_key",k) : localStorage.removeItem("byot_api_key"); } catch {}
   };
 
-  const updateHistory = (updater) => {
+  const addHistory = entry => {
     setHistory(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      try { localStorage.setItem("byot_history", JSON.stringify(next.slice(0, 100))); } catch {}
+      const next = [entry,...prev].slice(0,100);
+      try { localStorage.setItem("byot_hist",JSON.stringify(next)); } catch {}
       return next;
     });
   };
 
-  const startCamera = async () => {
-    setCameraError(null); setCaptured(false);
-    setResult(null); setResults([]); setError(null);
-    setImage(null); setImageBase64(null);
+  const getCorrections = () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-      setCameraActive(true);
-    } catch (e) {
-      setCameraError("Could not access camera. Make sure you allow camera permissions in your browser.");
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-    setCaptured(false);
-  };
-
-  const captureFrame = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    setImage(dataUrl);
-    setImageBase64(dataUrl.split(",")[1]);
-    setImageMime("image/jpeg");
-    setImageFile(null);
-    setCaptured(true);
-    stopCamera();
-  };
-
-  const retakePhoto = () => {
-    setImage(null); setImageBase64(null);
-    setResults([]); setError(null);
-    setCaptured(false);
-    startCamera();
-  };
-
-  const compressImage = (dataUrl, mimeType) => {
-    return new Promise((resolve) => {
-      const img = new window.Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const MAX = 1280;
-        let { width, height } = img;
-        if (width > MAX || height > MAX) {
-          if (width > height) { height = Math.round(height * MAX / width); width = MAX; }
-          else { width = Math.round(width * MAX / height); height = MAX; }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.82));
-      };
-      img.src = dataUrl;
-    });
-  };
-
-  const processFile = (file) => {
-    if (!file || !file.type.startsWith("image/")) return;
-    setResults([]); setSelectedPart(0); setError(null); setCurrentScanId(null); setFeedback(null); setCorrection(""); setCorrectionSaved(false); setDbStatus("idle");
-    setImageMime("image/jpeg");
-    setImageFile(file);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const compressed = await compressImage(e.target.result, file.type);
-      setImage(compressed);
-      setImageBase64(compressed.split(",")[1]);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const onDrop = useCallback((e) => {
-    e.preventDefault(); setDragging(false);
-    processFile(e.dataTransfer.files[0]);
-  }, []);
-
-  // Fetch past corrections from Supabase to feed back into AI
-  const fetchPastCorrections = async () => {
-    try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/scans?staff_correction=not.is.null&select=part_name,part_category,compatible_vehicles,staff_correction&limit=50&order=created_at.desc`,
-        { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}` } }
-      );
-      const data = await res.json();
-      if (!Array.isArray(data) || data.length === 0) return "";
-      const lines = data.map(r =>
-        `- ${r.part_name}${r.part_category ? ` (${r.part_category})` : ""}: Staff corrected compatibility to "${r.staff_correction}"`
-      ).join("\n");
+      const data = JSON.parse(localStorage.getItem("byot_corrections")||"[]");
       setLearningCount(data.length);
-      return `\n\nSTAFF CORRECTION HISTORY (use this to improve your answers):\n${lines}`;
+      if (!data.length) return "";
+      return `\n\n=============================\nMANDATORY STAFF CORRECTIONS:\n${data.map(r=>`- ${r.text}`).join("\n")}\n=============================`;
     } catch { return ""; }
   };
 
-  const scan = async () => {
-    if (!imageBase64 || !apiKey) return;
-    setLoading(true); setError(null); setResults([]); setSelectedPart(0); setCurrentScanId(null); setFeedback(null); setCorrection(""); setCorrectionSaved(false); setDbStatus("idle");
+  const saveCorrection = corr => {
     try {
-      // Fetch past staff corrections to make AI smarter
-      const corrections = await fetchPastCorrections();
-      const smartPrompt = SYSTEM_PROMPT + corrections;
+      const ex = JSON.parse(localStorage.getItem("byot_corrections")||"[]");
+      ex.unshift({text:corr,saved_at:new Date().toISOString()});
+      localStorage.setItem("byot_corrections",JSON.stringify(ex.slice(0,100)));
+      setLearningCount(ex.length);
+    } catch {}
+  };
 
-      const res = await fetch("/api/anthropic", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
-          system: smartPrompt,
-          messages: [{ role: "user", content: [
-            { type: "image", source: { type: "base64", media_type: imageMime, data: imageBase64 } },
-            { type: "text", text: "Identify all auto parts visible in this image. Use the staff correction history above to improve your compatibility answers." }
+  const compressImage = dataUrl => new Promise(res => {
+    const img = new window.Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      const MAX=1280; let {width:w,height:h}=img;
+      if(w>MAX||h>MAX){if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}
+      c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);
+      res(c.toDataURL("image/jpeg",0.85));
+    };
+    img.src=dataUrl;
+  });
+
+  const processFile = file => {
+    if (!file||!file.type.startsWith("image/")) return;
+    setResults([]);setSelectedPart(0);setError(null);setImageFile(file);setImageMime("image/jpeg");
+    setFeedback(null);setCorrection({part_name:"",vehicle:"",notes:""});setCorrectionSaved(false);setVisionUsed(false);
+    const r = new FileReader();
+    r.onload = async e => { const comp = await compressImage(e.target.result); setImage(comp); setImageBase64(comp.split(",")[1]); };
+    r.readAsDataURL(file);
+  };
+
+  const onDrop = useCallback(e => { e.preventDefault();setDragging(false);processFile(e.dataTransfer.files[0]); },[]);
+
+  const googleVision = async b64 => {
+    try {
+      const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_VISION_KEY}`,{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({requests:[{image:{content:b64},features:[
+          {type:"WEB_DETECTION",maxResults:10},
+          {type:"LABEL_DETECTION",maxResults:15},
+          {type:"OBJECT_LOCALIZATION",maxResults:10}
+        ]}]})
+      });
+      const data = await res.json();
+      if (data.error) return "";
+      const web = data.responses?.[0]?.webDetection;
+      const labels = data.responses?.[0]?.labelAnnotations?.map(l=>l.description).join(", ")||"";
+      const objects = data.responses?.[0]?.localizedObjectAnnotations?.map(o=>o.name).join(", ")||"";
+      const entities = web?.webEntities?.map(e=>e.description).filter(Boolean).join(", ")||"";
+      const bestGuess = web?.bestGuessLabels?.map(l=>l.label).join(", ")||"";
+      const pages = web?.pagesWithMatchingImages?.slice(0,5).map(p=>p.url).join(" ")||"";
+      return [bestGuess&&`Best visual match: ${bestGuess}`,entities&&`Web entities: ${entities}`,labels&&`Labels: ${labels}`,objects&&`Objects: ${objects}`,pages&&`Found on: ${pages}`].filter(Boolean).join("\n");
+    } catch { return ""; }
+  };
+
+  const doScan = async (b64, mime) => {
+    if (!b64||!apiKey||scanningRef.current) return;
+    scanningRef.current=true;
+    setLoading(true);setError(null);setResults([]);setSelectedPart(0);
+    setFeedback(null);setCorrection({part_name:"",vehicle:"",notes:""});setCorrectionSaved(false);setVisionUsed(false);
+    try {
+      const [learned, visionData] = await Promise.all([getCorrections(), googleVision(b64)]);
+      if (visionData) setVisionUsed(true);
+      const visionCtx = visionData ? `\n\n=============================\nGOOGLE VISION DATA — use to improve vehicle ID accuracy:\n${visionData}\n=============================` : "";
+      const res = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",max_tokens:2000,
+          system:SYSTEM_PROMPT+learned+visionCtx,
+          messages:[{role:"user",content:[
+            {type:"image",source:{type:"base64",media_type:mime,data:b64}},
+            {type:"text",text:"Identify ALL parts independently. Apply staff corrections and Google Vision data. Return JSON array only."}
           ]}]
         })
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
       let raw = data.content[0].text.trim();
-      if (raw.startsWith("```")) raw = raw.split("\n").slice(1).join("\n");
-      if (raw.endsWith("```")) raw = raw.split("\n").slice(0, -1).join("\n");
+      if (raw.startsWith("```")) raw=raw.split("\n").slice(1).join("\n");
+      if (raw.endsWith("```")) raw=raw.split("\n").slice(0,-1).join("\n");
       let parsed = JSON.parse(raw.trim());
-      if (!Array.isArray(parsed)) parsed = [parsed];
+      if (!Array.isArray(parsed)) parsed=[parsed];
       setResults(parsed);
-      setSelectedPart(0);
+      parsed.forEach(p=>addHistory({...p,scanned_at:new Date().toISOString(),image_thumb:image}));
+    } catch(e) { setError(e.message||"Scan failed."); }
+    finally { setLoading(false); scanningRef.current=false; }
+  };
 
-      // Save each part to history and supabase
-      setDbStatus("saving");
-      const savePromises = parsed.map(async (part, i) => {
-        const localId = `local-${Date.now()}-${i}`;
-        updateHistory(prev => [{
-          id: localId, created_at: new Date().toISOString(), image_url: image,
-          part_name: part.part_name, part_category: part.part_category,
-          part_number: part.part_number_visible, compatible_vehicles: part.compatible_vehicles,
-          condition: part.condition, condition_notes: part.condition_notes,
-          estimated_value: part.estimated_value, confidence: part.confidence,
-          notes: part.notes, staff_feedback: null
-        }, ...prev]);
-        const { id, image_url } = await trySaveToSupabase(part, i === 0 ? imageFile : null, image);
-        if (id && i === 0) { setCurrentScanId(id); }
-        if (id) updateHistory(prev => prev.map(h => h.id === localId ? { ...h, id, image_url } : h));
-        return id;
+  const scan = () => doScan(imageBase64, imageMime);
+
+  const startCamera = async () => {
+    setCameraError(null); setCaptured(false); setResults([]); setError(null); setImage(null); setImageBase64(null);
+    try {
+      // Stop any existing stream first
+      if (streamRef.current) { streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; }
+      
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } }
       });
-      Promise.all(savePromises).then(ids => {
-        setDbStatus(ids[0] ? "saved" : "failed");
-      });
-    } catch (e) {
-      setError(e.message || "Scan failed. Check your API key.");
-    } finally {
-      setLoading(false);
+      streamRef.current = stream;
+      setCameraActive(true);
+      
+      // Wait for video element to be in DOM after state update
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => { videoRef.current.play().catch(()=>{}); };
+        }
+      }, 100);
+    } catch(e) {
+      setCameraError(`Camera error: ${e.message || "Could not access camera. Check permissions."}`);
     }
   };
 
-  const submitFeedback = async (val) => {
-    setFeedback(val);
-    updateHistory(prev => prev.map((h, i) => i === 0 ? { ...h, staff_feedback: val } : h));
-    if (currentScanId) tryUpdateFeedback(currentScanId, val);
+  const stopCamera = () => {
+    stopMotionDetection();
+    if (streamRef.current){streamRef.current.getTracks().forEach(t=>t.stop());streamRef.current=null;}
+    setCameraActive(false);setCaptured(false);setAutoScan(false);
+    autoScanEnabledRef.current=false;setMotionStatus("idle");setCountdown(0);
   };
 
-  const result = results[selectedPart] || null;
-  const cs = result ? (COND[result.condition] || COND.Unknown) : null;
-  const dbBadge = {
-    saving: { text: "● Saving...",           color: "#e8a020" },
-    saved:  { text: "✓ Saved to database",   color: C.green   },
-    failed: { text: "⚠ Saved locally only",  color: "#e07828" },
-  }[dbStatus];
+  const captureAndScan = async () => {
+    const v=videoRef.current,c=canvasRef.current;if(!v||!c)return;
+    c.width=v.videoWidth;c.height=v.videoHeight;c.getContext("2d").drawImage(v,0,0);
+    const dataUrl=c.toDataURL("image/jpeg",0.92);
+    setImage(dataUrl);setImageBase64(dataUrl.split(",")[1]);setImageMime("image/jpeg");setImageFile(null);setCaptured(true);
+    await doScan(dataUrl.split(",")[1],"image/jpeg");
+  };
+
+  const stopMotionDetection = () => {
+    if (motionIntervalRef.current){clearInterval(motionIntervalRef.current);motionIntervalRef.current=null;}
+    if (countdownIntervalRef.current){clearInterval(countdownIntervalRef.current);countdownIntervalRef.current=null;}
+    prevPixelsRef.current=null;
+  };
+
+  const startMotionDetection = () => {
+    stopMotionDetection();
+    setMotionStatus("watching");
+    let stillCount=0,countingDown=false;
+    motionIntervalRef.current=setInterval(()=>{
+      if (!autoScanEnabledRef.current||scanningRef.current) return;
+      const v=videoRef.current;if(!v||v.readyState<2)return;
+      const w=120,h=68,tmp=document.createElement("canvas");
+      tmp.width=w;tmp.height=h;tmp.getContext("2d").drawImage(v,0,0,w,h);
+      const px=tmp.getContext("2d").getImageData(0,0,w,h).data;
+      if (prevPixelsRef.current){
+        let diff=0;
+        for(let i=0;i<px.length;i+=4){
+          if(Math.abs(px[i]-prevPixelsRef.current[i])+Math.abs(px[i+1]-prevPixelsRef.current[i+1])+Math.abs(px[i+2]-prevPixelsRef.current[i+2])>35)diff++;
+        }
+        if(diff/(w*h)>0.015){
+          stillCount=0;countingDown=false;
+          if(countdownIntervalRef.current){clearInterval(countdownIntervalRef.current);countdownIntervalRef.current=null;}
+          setMotionStatus("watching");setCountdown(0);
+        } else {
+          stillCount++;
+          if(stillCount>=5&&!countingDown&&!scanningRef.current){
+            countingDown=true;let cd=3;setCountdown(cd);setMotionStatus("still");
+            countdownIntervalRef.current=setInterval(()=>{
+              cd--;setCountdown(cd);
+              if(cd<=0){
+                clearInterval(countdownIntervalRef.current);countdownIntervalRef.current=null;
+                countingDown=false;stillCount=0;setMotionStatus("scanning");setCountdown(0);
+                captureAndScan().then(()=>{if(autoScanEnabledRef.current)setMotionStatus("watching");});
+              }
+            },1000);
+          }
+        }
+      }
+      prevPixelsRef.current=new Uint8ClampedArray(px);
+    },200);
+  };
+
+  const toggleAutoScan = () => {
+    if (autoScan){autoScanEnabledRef.current=false;setAutoScan(false);stopMotionDetection();setMotionStatus("idle");setCountdown(0);}
+    else{autoScanEnabledRef.current=true;setAutoScan(true);startMotionDetection();}
+  };
+
+  useEffect(()=>()=>stopCamera(),[]);
+
+  const result = results[selectedPart]||null;
+  const cs = result?(COND[result.condition]||COND.Unknown):null;
+  const partPrices = result?findPrice(result.part_name):null;
+  const filteredPrices = Object.entries(PRICES).filter(([n])=>n.toLowerCase().includes(priceSearch.toLowerCase()));
+
+  const NAV=[{key:"scan",icon:"⬡",label:"SCAN"},{key:"camera",icon:"◉",label:"CAMERA"},{key:"prices",icon:"$",label:"PRICES"},{key:"history",icon:"≡",label:"HISTORY"}];
+
+  const btn = (onClick,children,style={}) => (
+    <button onClick={onClick} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.textMid,borderRadius:8,padding:"10px 16px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"monospace",letterSpacing:1,...style}}>
+      {children}
+    </button>
+  );
 
   return (
-    <div style={{ minHeight: "100vh", background: C.pageBg, color: C.white }}>
+    <div style={{minHeight:"100vh",background:C.bg,color:C.white,fontFamily:"'Courier New',monospace"}}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Outfit', sans-serif; }
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-track { background: ${C.pageBg}; }
-        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 5px; }
-        .scan-btn:hover:not(:disabled) { background: linear-gradient(145deg, #4aaa1e, #3a8a14) !important; transform: translateY(-2px); box-shadow: 0 8px 24px ${C.greenGlow} !important; }
-        .scan-btn:active:not(:disabled) { transform: translateY(0) !important; }
-        .dropz { transition: all 0.2s; }
-        .dropz:hover { border-color: ${C.green} !important; background: #263320 !important; }
-        .hrow:hover { background: #404040 !important; }
-        .clr-btn:hover { border-color: #d94040 !important; color: #d94040 !important; }
-        .tag-pill { transition: all 0.12s; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.25} }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes scanline { 0%{top:5%} 100%{top:95%} }
-        @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
-        .fu { animation: fadeUp 0.35s cubic-bezier(.22,1,.36,1) both; }
+        *{box-sizing:border-box;margin:0;padding:0;}
+        ::-webkit-scrollbar{width:4px}
+        ::-webkit-scrollbar-track{background:#000}
+        ::-webkit-scrollbar-thumb{background:#1e1e1e;border-radius:4px}
+        .hov:hover{opacity:.8;transform:translateY(-1px);transition:all .15s}
+        .hrow:hover{background:#161616!important}
+        input,textarea{background:#0d0d0d!important;border:1px solid #222!important;color:#fff!important;font-family:monospace!important;border-radius:8px!important;padding:9px 12px!important;outline:none!important;width:100%;}
+        input:focus,textarea:focus{border-color:#39ff14!important;}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}
+        @keyframes scanline{0%{top:-2px}100%{top:102%}}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        .fu{animation:fadeUp .25s ease both}
       `}</style>
 
-      {/* ── HEADER ── */}
-      <div style={{ background: "linear-gradient(180deg, #1a1a1a 0%, #222 100%)", borderBottom: `3px solid ${C.green}` }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 20px", display: "flex", alignItems: "center", height: 72, gap: 14 }}>
-          <BYOTLogo size={54} />
+      {/* HEADER */}
+      <div style={{background:"#000",borderBottom:`2px solid ${N}`}}>
+        <div style={{maxWidth:1100,margin:"0 auto",padding:"0 20px",display:"flex",alignItems:"center",height:64,gap:14}}>
+          <Logo/>
           <div>
-            <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 18, fontWeight: 900, color: C.white, letterSpacing: 0.5, lineHeight: 1 }}>BYOT Auto Parts</div>
-            <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 10, color: C.green, letterSpacing: 2, marginTop: 3, fontWeight: 600 }}>AI Parts Scanner</div>
-            <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 8, color: C.textFaint, letterSpacing: 1, marginTop: 1 }}>Texas · Louisiana · Mississippi</div>
+            <div style={{fontSize:16,fontWeight:900,color:C.white,letterSpacing:1,fontFamily:"monospace"}}>BYOT AUTO PARTS</div>
+            <div style={{fontSize:8,color:N,letterSpacing:3,marginTop:2,fontFamily:"monospace"}}>AI PARTS SCANNER</div>
+            <div style={{fontSize:7,color:C.textFaint,letterSpacing:1,marginTop:1,fontFamily:"monospace"}}>TX · LA · MS</div>
           </div>
-
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            {keySubmitted ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 7, background: "#1e2e18", borderRadius: 22, padding: "7px 16px", border: `1px solid ${C.greenMuted}` }}>
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.green, boxShadow: `0 0 7px ${C.green}`, animation: "pulse 2.5s infinite" }} />
-                <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: C.green, fontWeight: 600 }}>Connected</span>
-                <span style={{ color: C.textFaint, fontSize: 11 }}>·</span>
-                <button onClick={() => { setKeySubmitted(false); saveApiKey(""); }} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 9, cursor: "pointer", textDecoration: "underline", fontFamily: "'Outfit', sans-serif" }}>change</button>
+          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
+            {keySubmitted?(
+              <div style={{display:"flex",alignItems:"center",gap:8,background:"#0a1a0a",borderRadius:20,padding:"6px 14px",border:`1px solid ${C.neonBorder}`}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:N,animation:"pulse 2s infinite"}}/>
+                <span style={{fontSize:10,color:N,fontWeight:700,fontFamily:"monospace",letterSpacing:1}}>CONNECTED</span>
+                {learningCount>0&&<span style={{background:"#0a1a0a",border:`1px solid ${C.neonBorder}`,borderRadius:8,padding:"1px 7px",fontSize:8,color:N,fontWeight:700,marginLeft:4}}>🧠 {learningCount}</span>}
+                <span style={{color:C.textFaint,fontSize:10,margin:"0 2px"}}>·</span>
+                <button onClick={()=>{setKeySubmitted(false);saveKey("");}} style={{background:"none",border:"none",color:C.textFaint,fontSize:8,cursor:"pointer",textDecoration:"underline",fontFamily:"monospace"}}>change</button>
               </div>
-            ) : (
-              <button onClick={() => setShowKeyInput(!showKeyInput)} style={{
-                background: `linear-gradient(145deg, ${C.green}, ${C.greenDark})`,
-                color: "#fff", border: "none", borderRadius: 22, padding: "9px 20px",
-                fontFamily: "'Nunito', sans-serif", fontSize: 12, fontWeight: 800,
-                cursor: "pointer", letterSpacing: 0.5,
-                boxShadow: `0 4px 14px ${C.greenGlow}`
-              }}>🔑 Connect API</button>
+            ):(
+              <button onClick={()=>setShowKeyInput(!showKeyInput)} style={{background:N,color:"#000",border:"none",borderRadius:20,padding:"8px 18px",fontFamily:"monospace",fontSize:11,fontWeight:900,cursor:"pointer",letterSpacing:1}}>
+                CONNECT API
+              </button>
             )}
           </div>
         </div>
-
-        {/* API key panel */}
-        {showKeyInput && !keySubmitted && (
-          <div className="fu" style={{ maxWidth: 1100, margin: "0 auto", padding: "0 20px 16px" }}>
-            <div style={{ background: "#1e2e18", borderRadius: 14, padding: "14px 18px", border: `1px solid ${C.greenMuted}`, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 140 }}>
-                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 11, fontWeight: 800, color: C.green, marginBottom: 2 }}>Anthropic API Key</div>
-                <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.textFaint }}>console.anthropic.com → API Keys</div>
+        {showKeyInput&&!keySubmitted&&(
+          <div style={{maxWidth:1100,margin:"0 auto",padding:"0 20px 14px"}}>
+            <div style={{background:"#0a1a0a",borderRadius:12,padding:"12px 16px",border:`1px solid ${C.neonBorder}`,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:120}}>
+                <div style={{fontSize:10,fontWeight:700,color:N,fontFamily:"monospace",letterSpacing:1}}>ANTHROPIC API KEY</div>
+                <div style={{fontSize:9,color:C.textDim,marginTop:2}}>console.anthropic.com → API Keys</div>
               </div>
-              <input type="password" placeholder="sk-ant-..." value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && apiKey.length > 10 && (saveApiKey(apiKey), setKeySubmitted(true), setShowKeyInput(false))}
-                style={{ flex: 2, minWidth: 220, background: C.pageBg, border: `1px solid ${C.border}`, color: C.white, fontFamily: "'Outfit', monospace", fontSize: 12, padding: "9px 13px", borderRadius: 10, outline: "none" }} />
-              <button onClick={() => { if (apiKey.length > 10) { saveApiKey(apiKey); setKeySubmitted(true); setShowKeyInput(false); } }}
-                style={{ background: `linear-gradient(145deg, ${C.green}, ${C.greenDark})`, color: "#fff", border: "none", borderRadius: 10, padding: "9px 22px", fontFamily: "'Nunito', sans-serif", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
-                Connect →
-              </button>
+              <input type="password" placeholder="sk-ant-..." value={apiKey} onChange={e=>setApiKey(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&apiKey.length>10&&(saveKey(apiKey),setKeySubmitted(true),setShowKeyInput(false))}
+                style={{flex:2,minWidth:200}}/>
+              <button onClick={()=>{if(apiKey.length>10){saveKey(apiKey);setKeySubmitted(true);setShowKeyInput(false);}}}
+                style={{background:N,color:"#000",border:"none",borderRadius:8,padding:"9px 20px",fontFamily:"monospace",fontSize:12,fontWeight:900,cursor:"pointer",letterSpacing:1}}>CONNECT</button>
             </div>
           </div>
         )}
       </div>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "22px 20px" }}>
-
-        {/* ── NAV CARDS ── */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>
-          <NavCard icon="🔍" label="Scan Part"    sub="Upload photo"     active={tab === "scan"}    onClick={() => { stopCamera(); setTab("scan"); }} />
-          <NavCard icon="📹" label="Live Camera"  sub="Capture live"     active={tab === "camera"}  onClick={() => { setTab("camera"); setTimeout(startCamera, 100); }} />
-          <NavCard icon="📋" label="History"      sub="Past scans"       active={tab === "history"} onClick={() => { stopCamera(); setTab("history"); }} />
-          <NavCard icon="📊" label="Part Stats"   sub="Session summary"  active={tab === "stats"}   onClick={() => { stopCamera(); setTab("stats"); }} />
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"16px 20px"}}>
+        {/* NAV */}
+        <div style={{display:"flex",gap:6,marginBottom:16}}>
+          {NAV.map(n=>(
+            <button key={n.key} onClick={()=>{if(n.key!=="camera")stopCamera();setTab(n.key);if(n.key==="camera")setTimeout(startCamera,100);}}
+              style={{flex:1,background:tab===n.key?N:C.card,border:`1px solid ${tab===n.key?N:C.border}`,borderRadius:10,padding:"11px 4px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",transition:"all .15s"}}>
+              <span style={{fontSize:16,color:tab===n.key?"#000":C.textDim}}>{n.icon}</span>
+              <span style={{fontSize:9,fontWeight:900,color:tab===n.key?"#000":N,fontFamily:"monospace",letterSpacing:2}}>{n.label}</span>
+            </button>
+          ))}
         </div>
 
         {/* ── SCAN TAB ── */}
-        {tab === "scan" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-
-            {/* Upload card */}
-            <div style={{ background: C.cardBg, borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 4px 20px #00000030" }}>
-              <CardHeader icon="📷" title="Upload Part Image" />
-
-              <div className="dropz" onClick={() => fileRef.current?.click()}
-                onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={onDrop}
-                style={{ border: `2px dashed ${dragging ? C.green : C.border}`, background: dragging ? "#263320" : C.cardDark, height: 280, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", overflow: "hidden", margin: 14, borderRadius: 14 }}>
-                {image ? (
+        {tab==="scan"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,alignItems:"start"}}>
+            {/* Upload */}
+            <div style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+              <div style={{background:"#000",padding:"11px 16px",borderBottom:`1px solid ${N}`,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:12,color:N}}>◈</span>
+                <span style={{fontSize:11,fontWeight:900,color:N,fontFamily:"monospace",letterSpacing:2}}>UPLOAD PART IMAGE</span>
+              </div>
+              <div onClick={()=>fileRef.current?.click()}
+                onDragOver={e=>{e.preventDefault();setDragging(true);}}
+                onDragLeave={()=>setDragging(false)} onDrop={onDrop}
+                style={{border:`2px dashed ${dragging?N:C.borderHi}`,background:dragging?"#0a1a0a":C.surface,height:260,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",overflow:"hidden",margin:12,borderRadius:12,position:"relative",transition:"all .2s"}}>
+                {image?(
                   <>
-                    <img
-                      src={image}
-                      alt="part"
-                      style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", borderRadius: 10 }}
-                    />
-                    {loading && (
-                      <div style={{ position: "absolute", inset: 0, background: "#00000070", borderRadius: 12, zIndex: 2 }}>
-                        <div style={{ position: "absolute", left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.green}, transparent)`, animation: "scanline 1.8s ease-in-out infinite", boxShadow: `0 0 10px ${C.green}`, zIndex: 3 }} />
+                    <img src={image} alt="part" style={{width:"100%",height:"100%",objectFit:"contain",borderRadius:10}}/>
+                    {loading&&(
+                      <div style={{position:"absolute",inset:0,background:"#000000cc",display:"flex",alignItems:"center",justifyContent:"center",borderRadius:10}}>
+                        <div style={{position:"absolute",left:0,right:0,height:2,background:N,top:0,animation:"scanline 1.5s ease-in-out infinite",opacity:.8}}/>
+                        <svg width="44" height="44" viewBox="0 0 44 44" style={{animation:"spin 1.2s linear infinite"}}><circle cx="22" cy="22" r="18" stroke={N} strokeWidth="2" strokeDasharray="45 70" fill="none"/></svg>
                       </div>
                     )}
                   </>
-                ) : (
-                  <div style={{ textAlign: "center", padding: 28, zIndex: 1 }}>
-                    <div style={{ fontSize: 44, marginBottom: 12, filter: "grayscale(0.3)" }}>🔧</div>
-                    <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 14, fontWeight: 800, color: C.textDim, marginBottom: 6 }}>Drop part image here</div>
-                    <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 10, color: C.textFaint }}>or tap to browse · JPG PNG WEBP</div>
+                ):(
+                  <div style={{textAlign:"center",padding:24}}>
+                    <div style={{fontSize:40,opacity:.15,marginBottom:10,color:N}}>⬡</div>
+                    <div style={{fontSize:12,fontWeight:700,color:C.textDim,marginBottom:5,fontFamily:"monospace",letterSpacing:1}}>DROP PART IMAGE HERE</div>
+                    <div style={{fontSize:9,color:C.textFaint,fontFamily:"monospace"}}>TAP TO BROWSE · JPG PNG WEBP</div>
                   </div>
                 )}
               </div>
-              <input ref={fileRef} type="file" accept="image/*" onChange={e => processFile(e.target.files[0])} style={{ display: "none" }} />
-
-              <div style={{ padding: "0 14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-                {image ? (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="scan-btn" onClick={scan} disabled={loading || !keySubmitted}
-                      style={{ flex: 1, background: loading ? C.cardDark : `linear-gradient(145deg, ${C.green}, ${C.greenDark})`, color: loading ? C.textDim : "#fff", border: "none", borderRadius: 12, padding: "13px 0", fontFamily: "'Nunito', sans-serif", fontSize: 15, fontWeight: 800, cursor: loading || !keySubmitted ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 9, transition: "all 0.18s", boxShadow: !loading && keySubmitted ? `0 4px 16px ${C.greenGlow}` : "none" }}>
-                      {loading
-                        ? <><svg width="15" height="15" viewBox="0 0 16 16" style={{ animation: "spin 1s linear infinite" }}><circle cx="8" cy="8" r="6" stroke={C.green} strokeWidth="1.5" strokeDasharray="20 18" fill="none"/></svg> Analyzing...</>
-                        : <>🔍 Identify Part</>}
+              <input ref={fileRef} type="file" accept="image/*" onChange={e=>processFile(e.target.files[0])} style={{display:"none"}}/>
+              <div style={{padding:"0 12px 12px",display:"flex",gap:8}}>
+                {image?(
+                  <>
+                    <button onClick={scan} disabled={loading||!keySubmitted}
+                      style={{flex:1,background:loading||!keySubmitted?"#111":N,color:loading||!keySubmitted?C.textDim:"#000",border:`1px solid ${loading||!keySubmitted?C.border:N}`,borderRadius:10,padding:"13px 0",fontFamily:"monospace",fontSize:13,fontWeight:900,cursor:loading||!keySubmitted?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,letterSpacing:1,transition:"all .18s"}}>
+                      {loading?<><svg width="14" height="14" viewBox="0 0 16 16" style={{animation:"spin 1s linear infinite"}}><circle cx="8" cy="8" r="6" stroke={N} strokeWidth="1.5" strokeDasharray="20 18" fill="none"/></svg>SCANNING...</>:<>IDENTIFY PARTS</>}
                     </button>
-                    <button className="clr-btn" onClick={() => { setImage(null); setImageBase64(null); setImageFile(null); setResult(null); setError(null); setDbStatus("idle"); }}
-                      style={{ background: C.cardDark, border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 12, padding: "13px 15px", fontSize: 14, cursor: "pointer", transition: "all 0.15s" }}>✕</button>
-                  </div>
-                ) : (
-                  <button onClick={() => fileRef.current?.click()}
-                    style={{ width: "100%", background: C.cardDark, border: `2px solid ${C.green}`, color: C.green, borderRadius: 12, padding: "12px 0", fontFamily: "'Nunito', sans-serif", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
-                    📁 Browse Files
-                  </button>
-                )}
-
-                {!keySubmitted && (
-                  <div style={{ textAlign: "center", fontFamily: "'Outfit', sans-serif", fontSize: 10, color: C.green, fontWeight: 500 }}>Tap "Connect API" in the header to enable scanning</div>
-                )}
-                {dbBadge && (
-                  <div style={{ textAlign: "center", fontFamily: "'Outfit', sans-serif", fontSize: 10, color: dbBadge.color, fontWeight: 600 }}>{dbBadge.text}</div>
+                    <button onClick={()=>{setImage(null);setImageBase64(null);setImageFile(null);setResults([]);setError(null);}}
+                      style={{background:C.surface,border:`1px solid ${C.border}`,color:C.textDim,borderRadius:10,padding:"13px 14px",fontSize:14,cursor:"pointer"}}>✕</button>
+                  </>
+                ):(
+                  <button onClick={()=>fileRef.current?.click()}
+                    style={{width:"100%",background:C.surface,border:`1px solid ${N}`,color:N,borderRadius:10,padding:"12px 0",fontFamily:"monospace",fontSize:12,fontWeight:900,cursor:"pointer",letterSpacing:1}}>BROWSE FILES</button>
                 )}
               </div>
+              {!keySubmitted&&<div style={{textAlign:"center",fontSize:9,color:N,paddingBottom:12,fontFamily:"monospace",letterSpacing:1}}>CONNECT API KEY TO ENABLE SCANNING</div>}
             </div>
 
-            {/* Results card */}
-            <div style={{ background: C.cardBg, borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 4px 20px #00000030" }}>
-              <CardHeader icon="📋" title="Part Details" />
-
-              {results.length === 0 && !loading && !error && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, gap: 12, padding: 24 }}>
-                  <div style={{ fontSize: 52, opacity: 0.12 }}>🔩</div>
-                  <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 13, color: C.textFaint, textAlign: "center", lineHeight: 1.6 }}>Upload a part image<br/>and press Identify</div>
+            {/* Results */}
+            <div style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+              <div style={{background:"#000",padding:"11px 16px",borderBottom:`1px solid ${N}`,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:12,color:N}}>◎</span>
+                <span style={{fontSize:11,fontWeight:900,color:N,fontFamily:"monospace",letterSpacing:2}}>PART DETAILS</span>
+              </div>
+              {!result&&!loading&&!error&&(
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:300,gap:10,padding:24}}>
+                  <div style={{fontSize:48,opacity:.05,color:N}}>⬡</div>
+                  <div style={{fontSize:11,color:C.textFaint,textAlign:"center",lineHeight:1.8,fontFamily:"monospace",letterSpacing:1}}>UPLOAD IMAGE<br/>PRESS IDENTIFY PARTS</div>
                 </div>
               )}
-
-              {loading && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, gap: 16 }}>
-                  <svg width="52" height="52" viewBox="0 0 52 52" style={{ animation: "spin 1.3s linear infinite" }}>
-                    <circle cx="26" cy="26" r="22" stroke={C.green} strokeWidth="2.5" strokeDasharray="55 85" fill="none"/>
-                  </svg>
-                  <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 14, fontWeight: 700, color: C.green, animation: "pulse 1.8s infinite" }}>Analyzing part...</div>
-                  <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 10, color: C.textFaint }}>Consulting AI expert</div>
+              {loading&&(
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:300,gap:14}}>
+                  <svg width="50" height="50" viewBox="0 0 50 50" style={{animation:"spin 1.2s linear infinite"}}><circle cx="25" cy="25" r="20" stroke={N} strokeWidth="2" strokeDasharray="50 80" fill="none"/></svg>
+                  <div style={{fontSize:12,fontWeight:700,color:N,animation:"pulse 1.8s infinite",fontFamily:"monospace",letterSpacing:2}}>ANALYZING...</div>
+                  {visionUsed&&<div style={{fontSize:9,color:C.blue,fontFamily:"monospace",letterSpacing:1}}>GOOGLE VISION ACTIVE</div>}
                 </div>
               )}
-
-              {error && (
-                <div className="fu" style={{ padding: 18 }}>
-                  <div style={{ background: "#280a0a", border: "1px solid #581212", borderRadius: 12, padding: 16 }}>
-                    <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 13, fontWeight: 800, color: "#d94040", marginBottom: 8 }}>⚠ Scan Error</div>
-                    <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: C.textDim, lineHeight: 1.7 }}>{error}</div>
+              {error&&(
+                <div className="fu" style={{padding:14}}>
+                  <div style={{background:C.redDim,border:`1px solid ${C.redBorder}`,borderRadius:10,padding:14}}>
+                    <div style={{fontSize:12,fontWeight:900,color:C.red,marginBottom:6,fontFamily:"monospace",letterSpacing:1}}>⚠ SCAN ERROR</div>
+                    <div style={{fontSize:11,color:C.textDim,lineHeight:1.7}}>{error}</div>
                   </div>
                 </div>
               )}
-
-              {result && (
-                <div className="fu">
-                  {/* Part selector tabs — shown when multiple parts found */}
-                  {results.length > 1 && (
-                    <div style={{ padding: "10px 14px 0", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: `1px solid ${C.border}` }}>
-                      <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.green, fontWeight: 700, letterSpacing: 1.5, width: "100%", marginBottom: 6 }}>
-                        🔍 {results.length} PARTS FOUND — SELECT TO VIEW:
+              {result&&(
+                <div className="fu" style={{maxHeight:600,overflowY:"auto"}}>
+                  {results.length>1&&(
+                    <div style={{padding:"10px 12px 0",borderBottom:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:8,color:N,fontWeight:700,letterSpacing:2,marginBottom:6,fontFamily:"monospace"}}>{results.length} PARTS FOUND — SELECT:</div>
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap",paddingBottom:8}}>
+                        {results.map((p,i)=>(
+                          <button key={i} onClick={()=>{setSelectedPart(i);setFeedback(null);setCorrection({part_name:"",vehicle:"",notes:""});setCorrectionSaved(false);}}
+                            style={{background:selectedPart===i?N:C.surface,color:selectedPart===i?"#000":C.textDim,border:`1px solid ${selectedPart===i?N:C.border}`,borderRadius:6,padding:"4px 10px",fontFamily:"monospace",fontSize:10,fontWeight:700,cursor:"pointer",letterSpacing:.5}}>
+                            {i+1}. {p.part_name?.split(" ").slice(0,3).join(" ")}
+                          </button>
+                        ))}
                       </div>
-                      {results.map((p, i) => (
-                        <button key={i} onClick={() => { setSelectedPart(i); setFeedback(null); setCorrection(""); setCorrectionSaved(false); }}
-                          style={{ background: selectedPart === i ? `linear-gradient(145deg, ${C.green}, ${C.greenDark})` : C.cardDark, color: selectedPart === i ? "#fff" : C.textDim, border: `1px solid ${selectedPart === i ? C.green : C.border}`, borderRadius: 8, padding: "5px 12px", fontFamily: "'Nunito', sans-serif", fontSize: 11, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
-                          Part {i + 1}: {p.part_name?.split(" ").slice(0, 3).join(" ")}
-                        </button>
-                      ))}
                     </div>
                   )}
-
-                  {/* Part name banner */}
-                  <div style={{ background: `linear-gradient(135deg, #1c3010 0%, #0e2208 100%)`, padding: "15px 20px", borderBottom: `2px solid ${C.greenMuted}` }}>
-                    <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 18, fontWeight: 900, color: C.green, lineHeight: 1.25 }}>{result.part_name}</div>
-                    <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 10, color: "#7ab860", marginTop: 4, letterSpacing: 1.5, fontWeight: 500 }}>{result.part_category?.toUpperCase()}</div>
+                  {/* Part banner */}
+                  <div style={{background:"#000",padding:"14px 16px",borderBottom:`1px solid ${C.neonBorder}`,borderLeft:`4px solid ${N}`}}>
+                    <div style={{fontSize:16,fontWeight:900,color:N,lineHeight:1.2,fontFamily:"monospace"}}>{result.part_name}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5,flexWrap:"wrap"}}>
+                      <span style={{fontSize:8,color:C.textDim,letterSpacing:2,fontFamily:"monospace"}}>{result.part_category?.toUpperCase()}</span>
+                      {visionUsed&&<Badge color={C.blue} bg={C.blueDim} border={C.blueBorder}>GOOGLE VISION</Badge>}
+                    </div>
                   </div>
-
                   {/* Condition + Confidence */}
-                  <div style={{ display: "flex", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ flex: 1, background: cs.bg, border: `1px solid ${cs.border}`, borderRadius: 12, padding: "9px 12px", textAlign: "center" }}>
-                      <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 8, color: C.textDim, letterSpacing: 2, marginBottom: 4, fontWeight: 600 }}>CONDITION</div>
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 14, color: cs.text, fontWeight: 900 }}>{result.condition}</div>
-                    </div>
-                    <div style={{ flex: 1, background: C.cardDark, border: `1px solid ${C.border}`, borderRadius: 12, padding: "9px 12px", textAlign: "center" }}>
-                      <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 8, color: C.textDim, letterSpacing: 2, marginBottom: 4, fontWeight: 600 }}>CONFIDENCE</div>
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 14, color: CONF_COLOR[result.confidence] || C.textDim, fontWeight: 900 }}>{result.confidence || "—"}</div>
-                    </div>
-                  </div>
-
-                  {/* Low confidence warning banner */}
-                  {result.confidence === "Low" && (
-                    <div style={{ margin: "10px 16px 0", background: "#2b0a0a", border: "2px solid #d94040", borderRadius: 12, padding: "12px 14px", display: "flex", gap: 10, alignItems: "flex-start" }}>
-                      <span style={{ fontSize: 20 }}>⚠️</span>
-                      <div>
-                        <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 13, fontWeight: 800, color: "#d94040", marginBottom: 4 }}>Low Confidence — Verify Before Pricing</div>
-                        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: "#c08080", lineHeight: 1.6 }}>The AI is not confident about this identification. Please double-check the part manually or use the correction box below to enter the correct info.</div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Medium confidence nudge */}
-                  {result.confidence === "Medium" && (
-                    <div style={{ margin: "10px 16px 0", background: "#2b1e00", border: "1px solid #e8a020", borderRadius: 12, padding: "10px 14px", display: "flex", gap: 10, alignItems: "center" }}>
-                      <span style={{ fontSize: 16 }}>🔶</span>
-                      <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: "#c8902a", lineHeight: 1.5 }}>
-                        <strong style={{ color: "#e8a020" }}>Medium confidence</strong> — result is likely correct but worth a quick visual check before pricing.
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Detail rows */}
-                  <div style={{ padding: "4px 16px 0" }}>
-                    {[
-                      ["🔢", "Part Number",     result.part_number_visible || "Not visible"],
-                      ["🚗", "Compatible With", result.compatible_vehicles],
-                      ["💵", "Est. Value",      result.estimated_value || "Unknown"],
-                      ["📝", "Condition Notes", result.condition_notes],
-                    ].filter(([,,v]) => v).map(([icon, label, value]) => (
-                      <div key={label} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 10, alignItems: "flex-start" }}>
-                        <span style={{ fontSize: 13, marginTop: 1 }}>{icon}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.textDim, fontWeight: 600, letterSpacing: 1, marginBottom: 2 }}>{label.toUpperCase()}</div>
-                          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 12, color: C.textMid, lineHeight: 1.6 }}>{value}</div>
-                        </div>
+                  <div style={{display:"flex",gap:8,padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>
+                    {[[cs?.text||"#555","CONDITION",result.condition,cs?.bg,cs?.border],[CONF_COLOR[result.identification_confidence]||C.textDim,"CONFIDENCE",result.identification_confidence,"#0a0a0a",C.border]].map(([tc,lbl,val,bg,bc])=>(
+                      <div key={lbl} style={{flex:1,background:bg,border:`1px solid ${bc}`,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
+                        <div style={{fontSize:7,color:C.textDim,letterSpacing:2,marginBottom:3,fontFamily:"monospace"}}>{lbl}</div>
+                        <div style={{fontSize:13,color:tc,fontWeight:900,fontFamily:"monospace"}}>{val||"—"}</div>
                       </div>
                     ))}
                   </div>
-
-                  {result.notes && (
-                    <div style={{ margin: "12px 16px", background: "#1e2e18", borderRadius: 12, padding: "12px 14px", border: `1px solid ${C.greenMuted}` }}>
-                      <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.green, fontWeight: 700, letterSpacing: 1.5, marginBottom: 5 }}>💡 STAFF NOTES</div>
-                      <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: C.textDim, lineHeight: 1.7 }}>{result.notes}</div>
+                  {/* Vehicle */}
+                  {result.primary_vehicle&&(
+                    <div style={{margin:"10px 12px",background:"#000",border:`2px solid ${N}`,borderRadius:12,padding:"12px 14px"}}>
+                      <div style={{fontSize:8,color:N,fontWeight:700,letterSpacing:2,marginBottom:6,fontFamily:"monospace"}}>PRIMARY VEHICLE</div>
+                      <div style={{fontSize:16,fontWeight:900,color:N,marginBottom:4,fontFamily:"monospace"}}>{result.primary_vehicle.year_range} {result.primary_vehicle.make} {result.primary_vehicle.model}</div>
+                      <div style={{fontSize:10,color:C.textMid,lineHeight:1.6}}>
+                        {result.primary_vehicle.trim&&result.primary_vehicle.trim!=="All Trims"&&<span>Trim: {result.primary_vehicle.trim} · </span>}
+                        {result.primary_vehicle.engine&&<span>Engine: {result.primary_vehicle.engine}</span>}
+                      </div>
                     </div>
                   )}
-
-                  {/* Feedback */}
-                  <div style={{ padding: "12px 16px 4px", display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: C.textDim, fontWeight: 500 }}>Was this correct?</span>
-                    {feedback
-                      ? <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: 12, color: feedback === "correct" ? C.green : "#d94040", fontWeight: 700 }}>
-                          {feedback === "correct" ? "✓ Marked Correct" : "✗ Marked Wrong"}
-                        </span>
-                      : <>
-                          <button onClick={() => submitFeedback("correct")}
-                            style={{ background: "#0e2208", border: `1px solid ${C.greenMuted}`, color: C.green, borderRadius: 8, padding: "5px 14px", fontSize: 11, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>✓ Yes</button>
-                          <button onClick={() => submitFeedback("wrong")}
-                            style={{ background: "#280a0a", border: "1px solid #581212", color: "#d94040", borderRadius: 8, padding: "5px 14px", fontSize: 11, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>✗ No</button>
-                        </>
-                    }
-                  </div>
-
-                  {/* Correction Box */}
-                  <div style={{ margin: "8px 16px 16px", background: C.cardDark, borderRadius: 12, padding: "12px 14px", border: `1px solid ${C.border}` }}>
-                    <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.green, fontWeight: 700, letterSpacing: 1.5, marginBottom: 8 }}>✏️ SUGGEST A CORRECTION</div>
-                    <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 10, color: C.textFaint, marginBottom: 8, lineHeight: 1.5 }}>
-                      Something wrong? Type the correct vehicle compatibility, part name, or any other info below.
+                  {/* Also fits */}
+                  {result.also_fits?.length>0&&(
+                    <div style={{margin:"0 12px 10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px"}}>
+                      <div style={{fontSize:8,color:C.textDim,fontWeight:700,letterSpacing:2,marginBottom:6,fontFamily:"monospace"}}>ALSO FITS</div>
+                      {result.also_fits.slice(0,4).map((v,i)=>(
+                        <div key={i} style={{fontSize:10,color:C.textMid,background:"#0a0a0a",borderRadius:6,padding:"5px 10px",marginBottom:4,borderLeft:`2px solid ${C.border}`}}>
+                          {v.year_range} {v.make} {v.model}{v.trim&&v.trim!=="All Trims"?` · ${v.trim}`:""}{v.engine&&v.engine!=="All Engines"?` · ${v.engine}`:""}
+                        </div>
+                      ))}
                     </div>
-                    {correctionSaved ? (
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 12, color: C.green, fontWeight: 700 }}>✓ Correction saved — thank you!</div>
-                    ) : (
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <textarea
-                          value={correction}
-                          onChange={e => setCorrection(e.target.value)}
-                          placeholder="e.g. This alternator fits 2005-2010 Toyota Camry 2.4L, not the vehicles listed above..."
-                          rows={3}
-                          style={{ flex: 1, background: C.cardBg, border: `1px solid ${C.border}`, color: C.white, fontFamily: "'Outfit', sans-serif", fontSize: 11, padding: "8px 10px", borderRadius: 8, outline: "none", resize: "vertical", lineHeight: 1.6 }}
-                        />
-                        <button
-                          onClick={() => {
-                            if (!correction.trim()) return;
-                            setCorrectionSaved(true);
-                            updateHistory(prev => prev.map((h, i) => i === 0 ? { ...h, staff_correction: correction } : h));
-                            if (currentScanId) tryUpdateCorrection(currentScanId, correction);
-                          }}
-                          style={{ background: `linear-gradient(145deg, ${C.green}, ${C.greenDark})`, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontFamily: "'Nunito', sans-serif", fontSize: 12, fontWeight: 800, cursor: "pointer", alignSelf: "flex-end" }}>
-                          Save
-                        </button>
+                  )}
+                  {/* Details */}
+                  {[["#","Part Number",result.part_number_visible],["~","Condition Notes",result.condition_notes],["?","How Identified",result.identification_reasoning]].filter(([,,v])=>v).map(([icon,lbl,val])=>(
+                    <div key={lbl} style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:8}}>
+                      <span style={{fontSize:11,color:N,marginTop:1,fontFamily:"monospace"}}>{icon}</span>
+                      <div>
+                        <div style={{fontSize:8,color:C.textDim,fontWeight:700,letterSpacing:1.5,marginBottom:2,fontFamily:"monospace"}}>{lbl.toUpperCase()}</div>
+                        <div style={{fontSize:11,color:C.textMid,lineHeight:1.6}}>{val}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {result.notes&&(
+                    <div style={{margin:"10px 12px",background:"#0a1a0a",borderRadius:10,padding:"10px 12px",border:`1px solid ${C.neonBorder}`}}>
+                      <div style={{fontSize:8,color:N,fontWeight:700,letterSpacing:2,marginBottom:5,fontFamily:"monospace"}}>STAFF NOTES</div>
+                      <div style={{fontSize:11,color:C.textDim,lineHeight:1.7}}>{result.notes}</div>
+                    </div>
+                  )}
+                  {/* Feedback */}
+                  <div style={{margin:"0 12px 10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px"}}>
+                    <div style={{fontSize:8,color:N,fontWeight:700,letterSpacing:2,marginBottom:10,fontFamily:"monospace"}}>WAS THIS CORRECT?</div>
+                    {!feedback?(
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={()=>setFeedback("correct")} style={{flex:1,background:"#051205",border:`1px solid ${C.neonBorder}`,color:N,borderRadius:8,padding:"8px 0",fontFamily:"monospace",fontSize:11,fontWeight:900,cursor:"pointer",letterSpacing:1}}>YES</button>
+                        <button onClick={()=>setFeedback("wrong")} style={{flex:1,background:C.redDim,border:`1px solid ${C.redBorder}`,color:C.red,borderRadius:8,padding:"8px 0",fontFamily:"monospace",fontSize:11,fontWeight:900,cursor:"pointer",letterSpacing:1}}>NO — FIX IT</button>
+                      </div>
+                    ):feedback==="correct"?(
+                      <div style={{fontSize:11,color:N,fontWeight:700,fontFamily:"monospace",letterSpacing:1}}>✓ MARKED CORRECT</div>
+                    ):(
+                      <div>
+                        <div style={{fontSize:9,color:C.textDim,marginBottom:10,lineHeight:1.6}}>Enter the correct info below. This trains the AI for future scans.</div>
+                        {correctionSaved?(
+                          <div style={{background:"#051205",border:`1px solid ${C.neonBorder}`,borderRadius:8,padding:"10px 12px",fontSize:11,color:N,fontWeight:700,fontFamily:"monospace",letterSpacing:1}}>✓ SAVED — AI WILL LEARN FROM THIS</div>
+                        ):(
+                          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                            <div>
+                              <div style={{fontSize:8,color:C.textDim,fontWeight:700,letterSpacing:1.5,marginBottom:4,fontFamily:"monospace"}}>CORRECT PART NAME</div>
+                              <input value={correction.part_name} onChange={e=>setCorrection(p=>({...p,part_name:e.target.value}))} placeholder={`Was: ${result?.part_name}`}/>
+                            </div>
+                            <div>
+                              <div style={{fontSize:8,color:C.textDim,fontWeight:700,letterSpacing:1.5,marginBottom:4,fontFamily:"monospace"}}>CORRECT VEHICLE</div>
+                              <input value={correction.vehicle} onChange={e=>setCorrection(p=>({...p,vehicle:e.target.value}))} placeholder="e.g. 2007 Toyota Camry LE 2.4L"/>
+                            </div>
+                            <div>
+                              <div style={{fontSize:8,color:C.textDim,fontWeight:700,letterSpacing:1.5,marginBottom:4,fontFamily:"monospace"}}>NOTES (optional)</div>
+                              <textarea value={correction.notes} onChange={e=>setCorrection(p=>({...p,notes:e.target.value}))} placeholder="Extra info..." rows={2} style={{resize:"vertical",lineHeight:1.5}}/>
+                            </div>
+                            <button onClick={()=>{
+                              const parts=[correction.part_name&&`Correct part: ${correction.part_name}`,correction.vehicle&&`Correct vehicle: ${correction.vehicle}`,correction.notes&&`Notes: ${correction.notes}`].filter(Boolean).join(" | ");
+                              if(!parts.trim())return;
+                              const full=`AI said "${result?.part_name}" from "${result?.primary_vehicle?.year_range||""} ${result?.primary_vehicle?.make||""} ${result?.primary_vehicle?.model||""}". Staff correction: ${parts}`;
+                              setCorrectionSaved(true);saveCorrection(full);
+                            }} style={{background:N,color:"#000",border:"none",borderRadius:8,padding:"10px 0",fontFamily:"monospace",fontSize:12,fontWeight:900,cursor:"pointer",letterSpacing:1}}>
+                              SAVE & TRAIN AI
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {/* Pricing */}
+                  <div style={{margin:"0 12px 14px",background:"#000",border:`2px solid ${N}`,borderRadius:12,overflow:"hidden"}}>
+                    <div style={{background:"#000",padding:"10px 14px",borderBottom:`1px solid ${C.neonBorder}`,display:"flex",alignItems:"center",gap:7}}>
+                      <span style={{color:N,fontSize:11,fontFamily:"monospace"}}>$</span>
+                      <span style={{fontSize:10,fontWeight:900,color:N,fontFamily:"monospace",letterSpacing:2}}>BYOT PRICING — ALL LOCATIONS</span>
+                    </div>
+                    {partPrices?(
+                      <div style={{padding:10}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                          {LOCATIONS.map(loc=>{
+                            const price=partPrices[loc.key];
+                            return (
+                              <div key={loc.key} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                                <div style={{fontSize:9,color:C.textDim,fontFamily:"monospace"}}>{loc.label}</div>
+                                <div style={{fontSize:14,fontWeight:900,color:price?N:C.textFaint,fontFamily:"monospace"}}>{price?`$${price.toFixed(2)}`:"—"}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{fontSize:8,color:C.textFaint,textAlign:"center",marginTop:8,fontFamily:"monospace",letterSpacing:1}}>PULL-IT-YOURSELF RATES</div>
+                      </div>
+                    ):(
+                      <div style={{padding:14,textAlign:"center",fontSize:10,color:C.textDim,fontFamily:"monospace"}}>
+                        NOT IN PRICE LIST. <span style={{color:N,cursor:"pointer"}} onClick={()=>setTab("prices")}>SEARCH PRICE LIST →</span>
                       </div>
                     )}
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ── CAMERA TAB ── */}
+        {tab==="camera"&&(
+          <div className="fu" style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+            <div style={{background:"#000",padding:"11px 16px",borderBottom:`1px solid ${N}`,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:12,color:N}}>◉</span>
+              <span style={{fontSize:11,fontWeight:900,color:N,fontFamily:"monospace",letterSpacing:2}}>LIVE CAMERA FEED</span>
+            </div>
+            <div style={{padding:14}}>
+              <canvas ref={canvasRef} style={{display:"none"}}/>
+              {cameraError&&<div style={{background:C.redDim,border:`1px solid ${C.redBorder}`,borderRadius:10,padding:12,marginBottom:12,fontSize:11,color:C.red,fontFamily:"monospace"}}>⚠ {cameraError}</div>}
+              <div style={{position:"relative",background:"#000",borderRadius:14,overflow:"hidden",aspectRatio:"16/9",display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${C.border}`}}>
+                <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",height:"100%",objectFit:"cover",display:cameraActive?"block":"none"}}/>
+                {captured&&image&&!cameraActive&&<img src={image} alt="captured" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
+                {!cameraActive&&!captured&&(
+                  <div style={{textAlign:"center",padding:40}}>
+                    <div style={{fontSize:56,opacity:.05,marginBottom:12,color:N}}>◉</div>
+                    <div style={{fontSize:12,fontWeight:700,color:C.textFaint,fontFamily:"monospace",letterSpacing:2}}>CAMERA OFFLINE</div>
+                    <div style={{fontSize:9,color:C.textFaint,marginTop:6,fontFamily:"monospace"}}>PRESS START LIVE FEED</div>
+                  </div>
+                )}
+                {/* Corner brackets */}
+                {cameraActive&&!loading&&(
+                  <div style={{position:"absolute",inset:0,pointerEvents:"none"}}>
+                    {[["top:14px","left:14px","borderTop","borderLeft"],["top:14px","right:14px","borderTop","borderRight"],["bottom:14px","left:14px","borderBottom","borderLeft"],["bottom:14px","right:14px","borderBottom","borderRight"]].map(([t,s,b1,b2],i)=>(
+                      <div key={i} style={{position:"absolute",[t.split(":")[0]]:t.split(":")[1],[s.split(":")[0]]:s.split(":")[1],width:32,height:32,[b1]:`2px solid ${N}`,[b2]:`2px solid ${N}`}}/>
+                    ))}
+                    <div style={{position:"absolute",bottom:10,left:0,right:0,textAlign:"center",fontSize:8,color:N,letterSpacing:3,fontFamily:"monospace"}}>AIM AT PART</div>
+                  </div>
+                )}
+                {/* Auto-scan status */}
+                {cameraActive&&autoScan&&(
+                  <div style={{position:"absolute",top:12,left:12,right:12,display:"flex",alignItems:"center",justifyContent:"space-between",pointerEvents:"none"}}>
+                    <div style={{background:"#000000dd",borderRadius:20,padding:"5px 12px",display:"flex",alignItems:"center",gap:7,border:`1px solid ${C.border}`}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:motionStatus==="still"?C.amber:N,animation:"pulse 1.2s infinite"}}/>
+                      <span style={{fontSize:9,fontWeight:700,color:"#fff",fontFamily:"monospace",letterSpacing:1}}>
+                        {motionStatus==="watching"&&"WATCHING..."}
+                        {motionStatus==="still"&&`SCANNING IN ${countdown}S`}
+                        {motionStatus==="scanning"&&"SCANNING..."}
+                      </span>
+                    </div>
+                    {motionStatus==="still"&&(
+                      <div style={{background:N,borderRadius:"50%",width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:"#000",fontFamily:"monospace",animation:"pulse 0.8s infinite"}}>{countdown}</div>
+                    )}
+                  </div>
+                )}
+                {loading&&(
+                  <div style={{position:"absolute",inset:0,background:"#000000cc",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
+                    <div style={{position:"absolute",left:0,right:0,height:2,background:N,top:0,animation:"scanline 1.5s ease-in-out infinite"}}/>
+                    <svg width="50" height="50" viewBox="0 0 50 50" style={{animation:"spin 1.2s linear infinite"}}><circle cx="25" cy="25" r="20" stroke={N} strokeWidth="2" strokeDasharray="50 80" fill="none"/></svg>
+                    <div style={{fontSize:12,fontWeight:900,color:N,animation:"pulse 1.5s infinite",fontFamily:"monospace",letterSpacing:2}}>SCANNING...</div>
+                  </div>
+                )}
+              </div>
+              {/* Auto-scan toggle */}
+              {cameraActive&&(
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:autoScan?"#0a1a0a":C.surface,border:`1px solid ${autoScan?N:C.border}`,borderRadius:10,padding:"10px 14px",marginTop:10,transition:"all .2s"}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:900,color:autoScan?N:C.textMid,fontFamily:"monospace",letterSpacing:1}}>AUTO-SCAN MODE</div>
+                    <div style={{fontSize:9,color:C.textFaint,marginTop:2,fontFamily:"monospace"}}>SET PART DOWN → HOLD STILL → SCANS AUTOMATICALLY</div>
+                  </div>
+                  <button onClick={toggleAutoScan} style={{background:autoScan?N:C.card,border:`1px solid ${autoScan?N:C.border}`,borderRadius:20,padding:"7px 18px",fontFamily:"monospace",fontSize:11,fontWeight:900,color:autoScan?"#000":C.textDim,cursor:"pointer",transition:"all .2s",minWidth:60,letterSpacing:1}}>
+                    {autoScan?"ON":"OFF"}
+                  </button>
+                </div>
+              )}
+              {/* Controls */}
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                {!cameraActive&&!captured&&(
+                  <button onClick={startCamera} style={{flex:1,background:N,color:"#000",border:"none",borderRadius:10,padding:"13px 0",fontFamily:"monospace",fontSize:13,fontWeight:900,cursor:"pointer",letterSpacing:2}}>START LIVE FEED</button>
+                )}
+                {cameraActive&&!autoScan&&(
+                  <>
+                    <button onClick={captureAndScan} disabled={loading} style={{flex:2,background:loading?C.surface:N,color:loading?C.textDim:"#000",border:`1px solid ${loading?C.border:N}`,borderRadius:10,padding:"13px 0",fontFamily:"monospace",fontSize:13,fontWeight:900,cursor:loading?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,letterSpacing:1}}>
+                      {loading?<><svg width="14" height="14" viewBox="0 0 16 16" style={{animation:"spin 1s linear infinite"}}><circle cx="8" cy="8" r="6" stroke={N} strokeWidth="1.5" strokeDasharray="20 18" fill="none"/></svg>SCANNING...</>:<>CAPTURE & SCAN</>}
+                    </button>
+                    <button onClick={stopCamera} style={{flex:1,background:C.surface,border:`1px solid ${C.redBorder}`,color:C.red,borderRadius:10,padding:"13px 0",fontFamily:"monospace",fontSize:11,fontWeight:900,cursor:"pointer",letterSpacing:1}}>STOP</button>
+                  </>
+                )}
+                {cameraActive&&autoScan&&(
+                  <button onClick={stopCamera} style={{flex:1,background:C.surface,border:`1px solid ${C.redBorder}`,color:C.red,borderRadius:10,padding:"13px 0",fontFamily:"monospace",fontSize:11,fontWeight:900,cursor:"pointer",letterSpacing:1}}>STOP CAMERA</button>
+                )}
+                {captured&&!cameraActive&&(
+                  <>
+                    <button onClick={()=>{setImage(null);setImageBase64(null);setCaptured(false);setResults([]);setError(null);startCamera();}} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,color:N,borderRadius:10,padding:"13px 0",fontFamily:"monospace",fontSize:11,fontWeight:900,cursor:"pointer",letterSpacing:1}}>SCAN ANOTHER</button>
+                    <button onClick={()=>setTab("scan")} style={{flex:1,background:N,color:"#000",border:"none",borderRadius:10,padding:"13px 0",fontFamily:"monospace",fontSize:11,fontWeight:900,cursor:"pointer",letterSpacing:1}}>VIEW RESULTS →</button>
+                  </>
+                )}
+              </div>
+              {/* Quick results */}
+              {results.length>0&&(
+                <div className="fu" style={{marginTop:14,background:C.surface,borderRadius:12,border:`1px solid ${N}`,overflow:"hidden"}}>
+                  <div style={{background:"#000",padding:"10px 14px",borderBottom:`1px solid ${C.neonBorder}`}}>
+                    <span style={{fontSize:10,fontWeight:900,color:N,fontFamily:"monospace",letterSpacing:2}}>{results.length} PART{results.length>1?"S":""} IDENTIFIED</span>
+                  </div>
+                  <div style={{padding:10,display:"flex",flexDirection:"column",gap:8}}>
+                    {results.map((r,i)=>{
+                      const pv=r.primary_vehicle,pp=findPrice(r.part_name);
+                      return (
+                        <div key={i} style={{background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,borderLeft:`3px solid ${N}`}}>
+                          <div style={{fontSize:13,fontWeight:900,color:N,marginBottom:3,fontFamily:"monospace"}}>{r.part_name}</div>
+                          {pv&&<div style={{fontSize:10,color:C.textMid,marginBottom:3}}>{pv.year_range} {pv.make} {pv.model}</div>}
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
+                            <span style={{fontSize:9,color:CONF_COLOR[r.identification_confidence]||C.textDim,fontWeight:700,fontFamily:"monospace"}}>{r.identification_confidence}</span>
+                            {pp?.waco&&<span style={{fontSize:13,fontWeight:900,color:N,fontFamily:"monospace"}}>WACO: ${pp.waco.toFixed(2)}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{padding:"0 10px 10px"}}>
+                    <button onClick={()=>setTab("scan")} style={{width:"100%",background:N,color:"#000",border:"none",borderRadius:8,padding:"10px 0",fontFamily:"monospace",fontSize:12,fontWeight:900,cursor:"pointer",letterSpacing:1}}>FULL DETAILS & ALL PRICES →</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── PRICE LIST TAB ── */}
+        {tab==="prices"&&(
+          <div className="fu" style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+            <div style={{background:"#000",padding:"11px 16px",borderBottom:`1px solid ${N}`,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:12,color:N,fontFamily:"monospace"}}>$</span>
+              <span style={{fontSize:11,fontWeight:900,color:N,fontFamily:"monospace",letterSpacing:2}}>BYOT PARTS PRICE LIST</span>
+            </div>
+            <div style={{padding:14}}>
+              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                {LOCATIONS.map(loc=>(
+                  <button key={loc.key} onClick={()=>setSelectedLocation(loc.key)}
+                    style={{background:selectedLocation===loc.key?N:C.surface,color:selectedLocation===loc.key?"#000":C.textDim,border:`1px solid ${selectedLocation===loc.key?N:C.border}`,borderRadius:8,padding:"6px 14px",fontFamily:"monospace",fontSize:10,fontWeight:900,cursor:"pointer",transition:"all .15s",letterSpacing:.5}}>
+                    {loc.label}
+                  </button>
+                ))}
+              </div>
+              <input placeholder="SEARCH PARTS..." value={priceSearch} onChange={e=>setPriceSearch(e.target.value)} style={{marginBottom:10,fontSize:12,letterSpacing:1}}/>
+              <div style={{maxHeight:500,overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${N}`}}>
+                      <th style={{textAlign:"left",padding:"8px 10px",fontSize:9,color:N,fontWeight:900,fontFamily:"monospace",letterSpacing:2}}>PART NAME</th>
+                      <th style={{textAlign:"right",padding:"8px 10px",fontSize:9,color:N,fontWeight:900,fontFamily:"monospace",letterSpacing:2}}>PRICE</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPrices.map(([name,prices])=>{
+                      const price=prices[selectedLocation];
+                      if(!price)return null;
+                      return (
+                        <tr key={name} className="hrow" style={{borderBottom:`1px solid ${C.border}`,transition:"background .1s"}}>
+                          <td style={{padding:"8px 10px",fontSize:11,color:C.textMid,fontFamily:"monospace"}}>{name}</td>
+                          <td style={{padding:"8px 10px",fontSize:13,color:N,fontWeight:900,textAlign:"right",fontFamily:"monospace"}}>${price.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {filteredPrices.filter(([,p])=>p[selectedLocation]).length===0&&(
+                  <div style={{textAlign:"center",padding:32,color:C.textFaint,fontSize:11,fontFamily:"monospace",letterSpacing:1}}>NO PARTS FOUND FOR "{priceSearch}"</div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         {/* ── HISTORY TAB ── */}
-        {tab === "history" && (
-          <div className="fu">
-            <div style={{ background: C.cardBg, borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 4px 20px #00000030" }}>
-              <div style={{ background: "#1e1e1e", padding: "11px 18px", borderBottom: `2px solid ${C.green}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                  <span style={{ fontSize: 15 }}>📋</span>
-                  <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: 13, fontWeight: 800, color: C.green }}>Scan History</span>
-                </div>
-                <div style={{ background: `linear-gradient(145deg, ${C.green}, ${C.greenDark})`, color: "#fff", borderRadius: 20, padding: "3px 13px", fontFamily: "'Nunito', sans-serif", fontSize: 11, fontWeight: 800 }}>
-                  {history.length} scan{history.length !== 1 ? "s" : ""}
-                </div>
+        {tab==="history"&&(
+          <div className="fu" style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+            <div style={{background:"#000",padding:"11px 18px",borderBottom:`1px solid ${N}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:12,color:N,fontFamily:"monospace"}}>≡</span>
+                <span style={{fontSize:11,fontWeight:900,color:N,fontFamily:"monospace",letterSpacing:2}}>SCAN HISTORY</span>
               </div>
-
-              {history.length === 0 ? (
-                <div style={{ padding: 48, textAlign: "center" }}>
-                  <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.15 }}>📭</div>
-                  <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 14, fontWeight: 700, color: C.textFaint, marginBottom: 6 }}>No scans yet</div>
-                  <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: C.textFaint }}>Go to Scan Part to identify your first part</div>
-                </div>
-              ) : (
-                <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 9 }}>
-                  {history.map((row) => {
-                    const c = COND[row.condition] || COND.Unknown;
-                    return (
-                      <div key={row.id} className="hrow" style={{ background: C.cardDark, borderRadius: 14, border: `1px solid ${C.border}`, display: "grid", gridTemplateColumns: row.image_url ? "76px 1fr auto" : "1fr auto", overflow: "hidden", transition: "background 0.12s" }}>
-                        {row.image_url && <img src={row.image_url} alt="" style={{ width: 76, height: 76, objectFit: "cover", display: "block" }} />}
-                        <div style={{ padding: "10px 14px" }}>
-                          <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 14, fontWeight: 800, color: C.white, marginBottom: 5 }}>{row.part_name}</div>
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            {[row.part_category, row.part_number ? `#${row.part_number}` : null, row.estimated_value].filter(Boolean).map((v, i) => (
-                              <span key={i} className="tag-pill" style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.textDim, background: C.cardBg, borderRadius: 6, padding: "2px 8px", fontWeight: 500, border: `1px solid ${C.border}` }}>{v}</span>
-                            ))}
-                          </div>
-                          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.textFaint, marginTop: 5 }}>{new Date(row.created_at).toLocaleString()}</div>
-                        </div>
-                        <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", gap: 6 }}>
-                          <div style={{ padding: "3px 10px", background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: 8, fontFamily: "'Nunito', sans-serif", fontSize: 11, fontWeight: 800 }}>{row.condition}</div>
-                          {row.staff_feedback && (
-                            <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: row.staff_feedback === "correct" ? C.green : "#d94040", fontWeight: 600 }}>
-                              {row.staff_feedback === "correct" ? "✓ Correct" : "✗ Wrong"}
-                            </div>
-                          )}
-                        </div>
+              <div style={{background:N,color:"#000",borderRadius:20,padding:"3px 12px",fontFamily:"monospace",fontSize:10,fontWeight:900,letterSpacing:1}}>{history.length} SCANS</div>
+            </div>
+            {history.length===0?(
+              <div style={{padding:48,textAlign:"center"}}>
+                <div style={{fontSize:36,opacity:.05,marginBottom:10,color:N}}>≡</div>
+                <div style={{fontSize:12,fontWeight:700,color:C.textFaint,fontFamily:"monospace",letterSpacing:2}}>NO SCANS YET</div>
+              </div>
+            ):(
+              <div style={{padding:12,display:"flex",flexDirection:"column",gap:8,maxHeight:600,overflowY:"auto"}}>
+                {history.map((h,i)=>{
+                  const c=COND[h.condition]||COND.Unknown,pv=h.primary_vehicle;
+                  return (
+                    <div key={i} className="hrow" style={{background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:h.image_thumb?"70px 1fr auto":"1fr auto",overflow:"hidden",borderLeft:`3px solid ${C.border}`,transition:"background .12s"}}>
+                      {h.image_thumb&&<img src={h.image_thumb} alt="" style={{width:70,height:70,objectFit:"cover"}}/>}
+                      <div style={{padding:"9px 12px"}}>
+                        <div style={{fontSize:12,fontWeight:900,color:C.white,marginBottom:3,fontFamily:"monospace"}}>{h.part_name}</div>
+                        {pv&&<div style={{fontSize:10,color:N,fontWeight:700,marginBottom:3,fontFamily:"monospace"}}>{pv.year_range} {pv.make} {pv.model}</div>}
+                        <div style={{fontSize:9,color:C.textFaint,fontFamily:"monospace"}}>{new Date(h.scanned_at).toLocaleString()}</div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ── STATS TAB ── */}
-        {tab === "stats" && (
-          <div className="fu">
-            <div style={{ background: C.cardBg, borderRadius: 20, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 4px 20px #00000030" }}>
-              <CardHeader icon="📊" title="Part Stats" />
-              <div style={{ padding: 18, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                {[
-                  { label: "Total Scans",    value: history.length,                                                                  icon: "🔍", color: C.green },
-                  { label: "Good Condition", value: history.filter(h => h.condition === "Good").length,                              icon: "✅", color: "#5BBF2A" },
-                  { label: "Fair Condition", value: history.filter(h => h.condition === "Fair").length,                              icon: "⚠️", color: "#e8a020" },
-                  { label: "Worn Parts",     value: history.filter(h => h.condition === "Worn").length,                              icon: "🔧", color: "#e07828" },
-                  { label: "Damaged",        value: history.filter(h => h.condition === "Damaged").length,                          icon: "❌", color: "#d94040" },
-                  { label: "AI Accuracy",    value: history.filter(h=>h.staff_feedback).length > 0 ? `${Math.round(history.filter(h=>h.staff_feedback==="correct").length/history.filter(h=>h.staff_feedback).length*100)}%` : "—", icon: "🎯", color: C.green },
-                ].map(({ label, value, icon, color }) => (
-                  <div key={label} style={{ background: C.cardDark, borderRadius: 14, padding: "16px 12px", textAlign: "center", border: `1px solid ${C.border}` }}>
-                    <div style={{ fontSize: 26, marginBottom: 7 }}>{icon}</div>
-                    <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 24, fontWeight: 900, color }}>{value}</div>
-                    <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.textDim, marginTop: 4, fontWeight: 500, letterSpacing: 0.5 }}>{label}</div>
-                  </div>
-                ))}
+                      <div style={{padding:"9px 12px",display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"center",gap:4}}>
+                        <div style={{padding:"3px 9px",background:c.bg,border:`1px solid ${c.border}`,color:c.text,borderRadius:6,fontSize:9,fontWeight:900,fontFamily:"monospace"}}>{h.condition}</div>
+                        <div style={{fontSize:9,color:CONF_COLOR[h.identification_confidence]||C.textDim,fontWeight:700,fontFamily:"monospace"}}>{h.identification_confidence}</div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          </div>
-        )}
-
-        <div style={{ marginTop: 22, textAlign: "center" }}>
-          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 9, color: C.textFaint, letterSpacing: 1.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-            <span>BYOT Auto Parts · AI Parts Scanner · Texas · Louisiana · Mississippi</span>
-            {learningCount > 0 && (
-              <span style={{ background: "#1e2e18", border: `1px solid ${C.greenMuted}`, color: C.green, borderRadius: 20, padding: "2px 10px", fontSize: 9, fontWeight: 700 }}>
-                🧠 Learning from {learningCount} correction{learningCount !== 1 ? "s" : ""}
-              </span>
             )}
           </div>
+        )}
+
+        <div style={{marginTop:16,textAlign:"center",fontSize:8,color:C.textFaint,letterSpacing:2,fontFamily:"monospace"}}>
+          BYOT AUTO PARTS · AI SCANNER · WACO · BRYAN · BEAUMONT · BATON ROUGE · JACKSON
         </div>
       </div>
     </div>
